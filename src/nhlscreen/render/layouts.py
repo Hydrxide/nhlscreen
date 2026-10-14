@@ -393,8 +393,8 @@ _DECISIONS = {"W": "W", "L": "L", "O": "OTL"}
 def last_game_spans(last: dict[str, Any], max_width: int = 126) -> list[dict[str, Any]] | None:
     """A player's last game as one line of spans.
 
-    Skater:  1G 0A  @ UTA
-    Goalie:  W  30 SV  .909  @ COL   (save % is dropped if the line is too wide)
+    Skater:  1G 0A  @ UTA            (numbers gold, "G"/"A" white)
+    Goalie:  W  30SV  .909  @ COL    (save % is dropped if the line is too wide)
     """
     if not last:
         return None
@@ -404,14 +404,18 @@ def last_game_spans(last: dict[str, Any], max_width: int = 126) -> list[dict[str
         {"kind": "team", "text": opponent, "color": get_team(opponent).display},
     ]
     if "goals" in last:  # skater
-        return [{"kind": "value", "text": f"{last.get('goals', 0)}G {last.get('assists', 0)}A"}, *tail]
+        return [
+            {"kind": "value", "text": str(last.get("goals", 0))}, {"kind": "label", "text": "G "},
+            {"kind": "value", "text": str(last.get("assists", 0))}, {"kind": "label", "text": "A"},
+            *tail,
+        ]
     if "shotsAgainst" not in last:
         return None
     head: list[dict[str, Any]] = []
     if last.get("decision") in _DECISIONS:
         head += [{"kind": "value", "text": _DECISIONS[last["decision"]]}, {"kind": "label", "text": "  "}]
     saves = last["shotsAgainst"] - last.get("goalsAgainst", 0)
-    head += [{"kind": "value", "text": str(saves)}, {"kind": "label", "text": " SV"}]
+    head += [{"kind": "value", "text": str(saves)}, {"kind": "label", "text": "SV"}]
     pct = last.get("savePctg")
     with_pct = head + ([{"kind": "label", "text": "  "}, {"kind": "value", "text": f"{pct:.3f}".lstrip("0")}]
                        if pct is not None else []) + tail

@@ -168,12 +168,15 @@ def test_last_game_lines():
     text = lambda spans: "".join(s["text"] for s in spans)  # noqa: E731
     goalie = {"decision": "W", "goalsAgainst": 3, "shotsAgainst": 33, "savePctg": 0.909091,
               "homeRoadFlag": "R", "opponentAbbrev": "COL"}
-    assert text(last_game_spans(goalie)) == "W  30 SV  .909  @ COL"
-    assert text(last_game_spans({**goalie, "decision": "O", "homeRoadFlag": "H"})) == "OTL  30 SV  .909  VS COL"
-    assert text(last_game_spans({**goalie, "decision": None})) == "30 SV  .909  @ COL"  # no decision (relief)
-    assert text(last_game_spans(goalie, max_width=90)) == "W  30 SV  @ COL"  # too narrow: save % dropped
+    assert text(last_game_spans(goalie)) == "W  30SV  .909  @ COL"
+    assert text(last_game_spans({**goalie, "decision": "O", "homeRoadFlag": "H"})) == "OTL  30SV  .909  VS COL"
+    assert text(last_game_spans({**goalie, "decision": None})) == "30SV  .909  @ COL"  # no decision (relief)
+    assert text(last_game_spans(goalie, max_width=90)) == "W  30SV  @ COL"  # too narrow: save % dropped
     skater = {"goals": 1, "assists": 0, "homeRoadFlag": "R", "opponentAbbrev": "UTA"}
     assert text(last_game_spans(skater)) == "1G 0A  @ UTA"
+    kinds = lambda spans: [(sp["kind"], sp["text"].strip()) for sp in spans if sp["text"].strip()]  # noqa: E731
+    assert kinds(last_game_spans(skater))[:4] == [("value", "1"), ("label", "G"), ("value", "0"), ("label", "A")]
+    assert kinds(last_game_spans(goalie))[:3] == [("value", "W"), ("value", "30"), ("label", "SV")]
     assert last_game_spans({}) is None
 
 

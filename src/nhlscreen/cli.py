@@ -6,7 +6,7 @@
     displayteam --reset      go back to the teams in config.yaml
     displayteam --list       list all team codes
 
-Talks to the running backend at $NHLSCREEN_URL (default http://127.0.0.1:8080).
+Talks to the running backend at $NHLSCREEN_URL (default http://127.0.0.1:9134).
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import httpx
 
 from .static.teams import TEAMS, resolve_team, suggest_teams
 
-DEFAULT_URL = "http://127.0.0.1:8080"
+DEFAULT_URL = "http://127.0.0.1:9134"
 
 
 def _describe(state: dict) -> str:

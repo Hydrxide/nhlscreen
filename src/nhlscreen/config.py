@@ -65,7 +65,7 @@ class DisplayConfig(BaseModel):
 
 class ServerConfig(BaseModel):
     host: str = "127.0.0.1"
-    port: int = 8080
+    port: int = 9134
 
 
 class LeadersConfig(BaseModel):

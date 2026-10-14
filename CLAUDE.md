@@ -12,7 +12,7 @@ A DIY LED scoreboard for live NHL stats. This repo is the **backend + renderer**
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'   # setup (no uv on the dev Mac)
 .venv/bin/pytest -q                                          # all tests; offline, ~6s
-.venv/bin/python -m nhlscreen                                # live NHL data -> http://127.0.0.1:8080/
+.venv/bin/python -m nhlscreen                                # live NHL data -> http://127.0.0.1:9134/
 .venv/bin/python tools/synth_replay.py --out replays/synthetic          # build demo game (gitignored, ~17MB)
 .venv/bin/python -m nhlscreen --replay replays/synthetic --speed 10     # demo: full game in ~7 min
 .venv/bin/python tools/render_previews.py --out previews/              # every screen type -> LED PNGs
@@ -99,6 +99,6 @@ NHL API -> nhl/client.py -> nhl/parsers.py -> nhl/models.py
 
 ## Next steps
 
-1. **Pi matrix output:** a separate process (needs root for GPIO) that subscribes to `ws://localhost:8080/events`, keeps the current screen, calls `render()` at ~10 fps, and pushes frames with `rpi-rgb-led-matrix` (`SetImage`/canvas, `--led-rows=64 --led-cols=64 --led-chain=2`). Blacklist `snd_bcm2835` (the library refuses to run with onboard audio) and consider `isolcpus=3`. Add a systemd unit next to `deploy/nhlscreen.service`.
+1. **Pi matrix output:** a separate process (needs root for GPIO) that subscribes to `ws://localhost:9134/events`, keeps the current screen, calls `render()` at ~10 fps, and pushes frames with `rpi-rgb-led-matrix` (`SetImage`/canvas, `--led-rows=64 --led-cols=64 --led-chain=2`). Blacklist `snd_bcm2835` (the library refuses to run with onboard audio) and consider `isolcpus=3`. Add a systemd unit next to `deploy/nhlscreen.service`.
 2. Tune colors/brightness on the real panel (blue is the dimmest color on black; `MIN_BRIGHTNESS` and `LED_OVERRIDES` in `static/teams.py`).
 3. Ideas raised but not built: show the last goal on the live screen when team stats are missing; drop the team code on the leaders screen if name + code run together on the panel.

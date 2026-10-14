@@ -7,7 +7,7 @@ timezone: America/Toronto
 
 server:
   host: 127.0.0.1     # use 0.0.0.0 to let other devices on your LAN reach it
-  port: 8080
+  port: 9134
 
 polling:
   live_poll_seconds: 5        # favorite team live play-by-play (min 2)

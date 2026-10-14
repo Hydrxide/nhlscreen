@@ -8,7 +8,7 @@ The backend never draws pixels. It hands out layout-agnostic **screens**, so the
 NHL API ─► client (cache, backoff) ─► parsers ─► store ─┬─► event detector ─► alerts
                     ▲                                    └─► scheduler ──────► current screen
               poller (adaptive cadence)                                         │
-                                                         FastAPI :8080  ◄───────┘
+                                                         FastAPI :9134  ◄───────┘
                                                          REST + WS /events ─► renderer
 ```
 
@@ -18,10 +18,30 @@ NHL API ─► client (cache, backoff) ─► parsers ─► store ─┬─► 
 python3 -m venv .venv
 .venv/bin/pip install -e '.[dev]'
 cp config.example.yaml config.yaml      # set favorite_teams / favorite_players
-.venv/bin/python -m nhlscreen           # serves http://127.0.0.1:8080
+.venv/bin/python -m nhlscreen           # serves http://127.0.0.1:9134
 ```
 
-Open **http://127.0.0.1:8080/** for a live preview of the board. The left column has the LED preview, **Show now** buttons and favorite players; the right column has the team picker, recent events and a collapsible **Screen JSON** debug panel (collapsed by default; the page remembers if you open it).
+On Windows, use `.venv\Scripts\` in place of `.venv/bin/` (and `copy` for `cp`). Python 3.11 or newer is required.
+
+### Running the board
+
+Live NHL data, or a demo game replayed at 10× (a full game in about 7 minutes). Both serve on port 9134, so run one at a time; Ctrl+C stops it.
+
+```bash
+# macOS / Linux / Pi
+.venv/bin/python -m nhlscreen                                          # live
+.venv/bin/python tools/synth_replay.py --out replays/synthetic         # build the demo game once (~17 MB)
+.venv/bin/python -m nhlscreen --replay replays/synthetic --speed 10    # replay
+```
+
+```powershell
+# Windows
+.venv\Scripts\python.exe -m nhlscreen                                       # live
+.venv\Scripts\python.exe tools\synth_replay.py --out replays\synthetic      # build the demo game once (~17 MB)
+.venv\Scripts\python.exe -m nhlscreen --replay replays\synthetic --speed 10 # replay
+```
+
+Open **http://127.0.0.1:9134/** for a live preview of the board. The left column has the LED preview, **Show now** buttons and favorite players; the right column has the team picker, recent events and a collapsible **Screen JSON** debug panel (collapsed by default; the page remembers if you open it).
 
 ## What the board shows
 
@@ -69,7 +89,7 @@ For a live game, `data.clock` has `seconds_remaining`, `running`, `as_of` (when 
 
 ### From a browser (laptop or phone)
 
-Open **http://raspberrypi.local:8080/** (use your Pi's hostname or IP) and tap a team. The page shows all 32 teams grouped by division in their colors. A **LIVE** badge marks teams playing right now, and teams with a game still to come show its start time. Tick **Follow several** to pick more than one team; **Reset to config** returns to `config.yaml`. Every open copy of the page stays in sync, including changes made with `displayteam`.
+Open **http://raspberrypi.local:9134/** (use your Pi's hostname or IP) and tap a team. The page shows all 32 teams grouped by division in their colors. A **LIVE** badge marks teams playing right now, and teams with a game still to come show its start time. Tick **Follow several** to pick more than one team; **Reset to config** returns to `config.yaml`. Every open copy of the page stays in sync, including changes made with `displayteam`.
 
 To reach the page from other devices, open the backend to your network in `config.yaml` on the Pi and restart it:
 
@@ -102,7 +122,7 @@ The switch takes effect immediately. If the new team is playing, the board jumps
 
 Your choice is saved to `nhlscreen-state.json` next to `config.yaml`, so it survives a reboot. Use `--reset` to delete that file and go back to the config.
 
-The command talks to the backend at `$NHLSCREEN_URL` (default `http://127.0.0.1:8080`). From a laptop, use `export NHLSCREEN_URL=http://raspberrypi.local:8080`. It's installed at `.venv/bin/displayteam`. To run it as plain `displayteam` on the Pi:
+The command talks to the backend at `$NHLSCREEN_URL` (default `http://127.0.0.1:9134`). From a laptop, use `export NHLSCREEN_URL=http://raspberrypi.local:9134`. It's installed at `.venv/bin/displayteam`. To run it as plain `displayteam` on the Pi:
 
 ```bash
 mkdir -p ~/.local/bin && ln -sf ~/nhlscreen/.venv/bin/displayteam ~/.local/bin/displayteam
@@ -155,7 +175,7 @@ That comes to about 15 requests per minute during a favorite-team game. The clie
 ```bash
 .venv/bin/pytest                                     # unit + end-to-end tests (offline)
 
-# Synthesize a "live" game from a finished one, then replay it at 30x:
+# Synthesize a "live" game from a finished one, then replay it at 10x:
 # (game clock runs 10x: each period takes 2 minutes, a full game about 7)
 .venv/bin/python tools/synth_replay.py --out replays/synthetic
 .venv/bin/python -m nhlscreen --replay replays/synthetic --speed 10
@@ -180,7 +200,7 @@ sudo cp deploy/nhlscreen.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now nhlscreen
 ```
 
-The backend runs as a normal user. The future LED renderer, which needs root for `rpi-rgb-led-matrix`, runs as its own process and talks to this one over `localhost:8080`.
+The backend runs as a normal user. The future LED renderer, which needs root for `rpi-rgb-led-matrix`, runs as its own process and talks to this one over `localhost:9134`.
 
 ## Layout
 

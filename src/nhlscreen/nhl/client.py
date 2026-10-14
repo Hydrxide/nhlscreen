@@ -27,6 +27,10 @@ class NHLUnavailable(Exception):
     """No fresh data and no cached fallback for this request."""
 
 
+class NHLNotFound(NHLUnavailable):
+    """The API answered 404: the thing asked for (e.g. a player ID) doesn't exist."""
+
+
 @dataclass
 class _CacheEntry:
     data: Any
@@ -111,8 +115,10 @@ class NHLClient:
                 log.warning("NHL API %s for %s", resp.status_code, key)
                 self._register_failure(retry_after)
                 return self._fallback(key, cached, None)
+            if resp.status_code == 404:
+                raise NHLNotFound(f"{key}: HTTP 404")
             if resp.status_code >= 400:
-                # 404 etc. is a request problem, not an outage: don't back off.
+                # 4xx is a request problem, not an outage: don't back off.
                 raise NHLUnavailable(f"{key}: HTTP {resp.status_code}")
 
             try:

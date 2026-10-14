@@ -4,7 +4,7 @@ A DIY LED scoreboard for live NHL stats. This repo is the **backend + renderer**
 
 ## Status (as of 2026-10-14)
 
-- **Done:** NHL client, parsers, event detection, scheduler, FastAPI API + WebSocket, browser preview with team picker, `displayteam` CLI, replay/demo system, 128×64 LED renderer (fonts + layouts), 91 passing tests.
+- **Done:** NHL client, parsers, event detection, scheduler, FastAPI API + WebSocket, browser preview with team picker, `displayteam` CLI, replay/demo system, 128×64 LED renderer (fonts + layouts), preview-page player swapping, 99 passing tests.
 - **Not started:** the hardware output process on the Pi (see *Next steps*).
 
 ## Commands
@@ -46,7 +46,7 @@ NHL API -> nhl/client.py -> nhl/parsers.py -> nhl/models.py
 | `services/scheduler.py` | What's on screen: alerts > live favorite game > rotation (next game, scoreboard pages, standings, leaders, player cards). Rotation resumes during intermissions. Standings slots are built per followed division/conference (`_standings_slots`). |
 | `views.py` | Builds `Screen` models. Each screen has `data` (structured), `spans` (tagged text), `lines` (plain text, derived from spans). |
 | `render/` | Pure-Python renderer, no hardware deps: `fonts.py` (hand-drawn 5×7 + 3×5 pixel fonts), `canvas.py` (RGB buffer, text, LED-dot PNG), `layouts.py` (per-screen layouts). |
-| `runtime.py` | Wires everything; favorite-team switching + persistence (`nhlscreen-state.json` next to the config). |
+| `runtime.py` | Wires everything; favorite team and player switching (`set_favorite_teams` / `set_favorite_players`, the latter validates IDs via the API: `NHLNotFound` = no such player). Runtime choices persist in `nhlscreen-state.json` next to the config, one key per choice, so resetting teams keeps players and vice versa. |
 | `replay.py` | httpx transport that serves recorded frames, so the whole pipeline runs unmodified in demos and tests. |
 | `static/teams.py` | Team names, brand colors, LED display colors, the home/away rule. |
 
@@ -85,7 +85,7 @@ NHL API -> nhl/client.py -> nhl/parsers.py -> nhl/models.py
 
 **Scoreboard pages:** one game per row, `NJD  5 @ DET  4  FINAL/OT`: a white `@` (regular size, 3px either side) between away and home; "AT" only if a narrower panel can't fit it. Column positions are the `_SB_*` constants in `render/layouts.py`.
 
-**Other:** ranks render as `1.`; Standings highlight the followed team's row with a neutral grey bar (a team-colored bar hid that team's code). Defaults: team TOR; players Gavin McKenna `8486067` and Sergei Bobrovsky `8475683`.
+**Other:** ranks render as `1.`; Standings highlight the followed team's row with a neutral grey bar (a team-colored bar hid that team's code). Defaults: team TOR; players Gavin McKenna `8486067` and Sergei Bobrovsky `8475683`. The preview page lets you swap **two** favorite players (config can hold more; the API allows up to 10).
 
 ## Working conventions
 

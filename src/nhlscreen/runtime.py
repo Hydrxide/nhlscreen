@@ -11,7 +11,8 @@ from typing import Any
 import httpx
 
 from .config import Config
-from .nhl.client import NHLClient
+from .nhl import parsers
+from .nhl.client import NHLClient, NHLNotFound, NHLUnavailable
 from .services.poller import Poller
 from .services.scheduler import Scheduler
 from .static.teams import TEAMS
@@ -32,8 +33,9 @@ class Runtime:
         state_path: Path | None = None,
     ) -> None:
         self.config = config
-        # Teams from config.yaml; `displayteam --reset` returns to these.
+        # From config.yaml; "reset" (displayteam --reset, the preview page) returns to these.
         self.configured_teams = list(config.favorite_teams)
+        self.configured_players = list(config.favorite_players)
         self.state_path = state_path
         self._load_state()
         self._favorites_lock = asyncio.Lock()
@@ -73,7 +75,7 @@ class Runtime:
             raise ValueError(f"unknown team code(s): {', '.join(unknown) or '(none given)'}")
         async with self._favorites_lock:
             self.config.favorite_teams = new
-            self._save_state(None if teams is None else new)
+            self._save_state("favorite_teams", None if teams is None else new)
             await self.poller.favorites_changed()
             self.scheduler.reset()
             self.tick()
@@ -81,6 +83,51 @@ class Runtime:
         # Let every open control page update, whoever made the change.
         self.store.publish({"type": "teams", **self.teams_state(include_screen=False)})
         return new
+
+    # ------------------------------------------------------------------ favorite players
+
+    MAX_PLAYERS = 10
+
+    async def set_favorite_players(self, players: list[int] | None) -> list[int]:
+        """Switch favorite players at runtime. ``None`` restores config.yaml's players.
+
+        Every ID is looked up with the NHL first; raises ValueError naming the
+        bad ID (or saying the API is unreachable) without changing anything.
+        """
+        new = self.configured_players if players is None else list(dict.fromkeys(players))
+        if len(new) > self.MAX_PLAYERS:
+            raise ValueError(f"at most {self.MAX_PLAYERS} favorite players")
+        found = []
+        for pid in new:
+            try:
+                found.append(parsers.parse_player(await self.client.player(pid)))
+            except NHLNotFound:
+                raise ValueError(f"No NHL player with ID {pid}") from None
+            except NHLUnavailable:
+                raise ValueError(f"Couldn't reach the NHL API to look up player {pid}; try again") from None
+            except (KeyError, TypeError, ValueError):
+                raise ValueError(f"No NHL player with ID {pid}") from None
+        async with self._favorites_lock:
+            self.config.favorite_players = new
+            for player in found:
+                self.store.set_player(player)
+            self._save_state("favorite_players", None if players is None else new)
+        log.info("favorite players -> %s", ", ".join(p.name for p in found) or "(none)")
+        self.store.publish({"type": "players", **self.players_state()})
+        return new
+
+    def players_state(self) -> dict[str, Any]:
+        def describe(pid: int) -> dict[str, Any]:
+            p = self.store.players.get(pid)
+            if p is None:  # not fetched yet
+                return {"id": pid, "name": None}
+            return {"id": pid, "name": p.name, "team": p.team_abbrev, "position": p.position,
+                    "number": p.sweater_number}
+
+        return {
+            "favorite_players": [describe(pid) for pid in self.config.favorite_players],
+            "configured_players": self.configured_players,
+        }
 
     def teams_state(self, include_screen: bool = True) -> dict[str, Any]:
         """Favorite teams plus every team, grouped for a picker UI."""
@@ -117,27 +164,43 @@ class Runtime:
             state["screen"] = self.screen.model_dump(mode="json") if self.screen else None
         return state
 
-    def _load_state(self) -> None:
+    def _read_state(self) -> dict[str, Any]:
         if not (self.state_path and self.state_path.exists()):
-            return
+            return {}
         try:
-            teams = json.loads(self.state_path.read_text()).get("favorite_teams")
+            state = json.loads(self.state_path.read_text())
+            return state if isinstance(state, dict) else {}
         except (OSError, ValueError) as exc:
             log.warning("ignoring unreadable state file %s: %s", self.state_path, exc)
-            return
+            return {}
+
+    def _load_state(self) -> None:
+        """Choices made at runtime (picker, displayteam) override config.yaml."""
+        state = self._read_state()
+        teams = state.get("favorite_teams")
         if teams and all(t in TEAMS for t in teams):
             log.info("favorite teams from %s: %s (config.yaml has %s)",
                      self.state_path, ", ".join(teams), ", ".join(self.configured_teams))
             self.config.favorite_teams = list(teams)
+        players = state.get("favorite_players")
+        if isinstance(players, list) and all(isinstance(p, int) for p in players):
+            log.info("favorite players from %s: %s", self.state_path, players)
+            self.config.favorite_players = list(players)
 
-    def _save_state(self, teams: list[str] | None) -> None:
+    def _save_state(self, key: str, value: Any | None) -> None:
+        """Set (or with None, clear) one saved choice; other choices are kept."""
         if not self.state_path:
             return
+        state = self._read_state()
+        if value is None:
+            state.pop(key, None)
+        else:
+            state[key] = value
         try:
-            if teams is None:
-                self.state_path.unlink(missing_ok=True)
+            if state:
+                self.state_path.write_text(json.dumps(state) + "\n")
             else:
-                self.state_path.write_text(json.dumps({"favorite_teams": teams}) + "\n")
+                self.state_path.unlink(missing_ok=True)
         except OSError as exc:
             log.warning("could not save state to %s: %s", self.state_path, exc)
 

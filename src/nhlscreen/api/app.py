@@ -11,6 +11,8 @@
   GET  /health             data freshness + API backoff state
   GET  /control/teams      current favorite teams
   PUT  /control/teams      {"teams": ["EDM"]} switch teams; {"teams": null} back to config.yaml
+  GET  /control/players    current favorite players (id, name, team)
+  PUT  /control/players    {"players": [8486067, 8475683]} switch; {"players": null} back to config.yaml
   GET  /render/frame       current screen as a raw RGB frame (width*height*3 bytes)
   GET  /render/frame.png   current screen drawn as LED dots
   WS   /events             pushes {"type": "screen"|"event"|"teams", ...}
@@ -36,6 +38,10 @@ _DEBUG_HTML = Path(__file__).with_name("debug.html")
 
 class TeamsRequest(BaseModel):
     teams: list[str] | None  # None = revert to config.yaml
+
+
+class PlayersRequest(BaseModel):
+    players: list[int] | None  # None = revert to config.yaml
 
 
 def create_app(runtime: Runtime, manage_lifecycle: bool = True) -> FastAPI:
@@ -137,6 +143,18 @@ def create_app(runtime: Runtime, manage_lifecycle: bool = True) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         return runtime.teams_state()
+
+    @app.get("/control/players")
+    def get_players() -> dict[str, Any]:
+        return runtime.players_state()
+
+    @app.put("/control/players")
+    async def set_players(req: PlayersRequest) -> dict[str, Any]:
+        try:
+            await runtime.set_favorite_players(req.players)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return runtime.players_state()
 
     @app.websocket("/events")
     async def events_ws(ws: WebSocket) -> None:

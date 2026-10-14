@@ -44,6 +44,19 @@
   .busy .chip { cursor: progress; }
   .msg { min-height: 1.4em; margin-top: 10px; color: #8c8; font-size: 13px; }
   .msg.err { color: #f77; }
+
+  /* favorite players */
+  .players { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-top: 10px; }
+  .players label { display: flex; flex-direction: column; gap: 4px; color: #aaa; font-size: 12px; }
+  .players input { background: #111; color: #eee; border: 1px solid #333; border-radius: 6px; padding: 8px 10px;
+                   font: 15px ui-monospace, Menlo, monospace; min-width: 0; }
+  .players input:focus { outline: 2px solid #6af; outline-offset: 0; border-color: transparent; }
+  .players .who { color: #ddd; font-size: 13px; min-height: 1.3em; }
+  .players-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+  .save { background: #2f5fb0; color: #fff; border: 0; border-radius: 6px; padding: 7px 14px; font: inherit; cursor: pointer; }
+  .save:hover { background: #3a6fc8; }
+  .save:disabled { opacity: .6; cursor: progress; }
+  .hint { color: #777; font-size: 12px; margin: 8px 0 0; }
 </style>
 </head>
 <body>
@@ -62,6 +75,30 @@
       </div>
       <div id="teamGrid"></div>
       <div class="msg" id="pickerMsg" role="status" aria-live="polite"></div>
+    </section>
+
+    <section class="picker" aria-labelledby="players-label">
+      <div class="picker-head">
+        <h2 id="players-label">Favorite players</h2>
+        <button class="reset" id="resetPlayers" type="button" hidden></button>
+      </div>
+      <form id="playersForm" novalidate>
+        <div class="players">
+          <label>Player 1
+            <input id="player1" inputmode="numeric" autocomplete="off" placeholder="ID or nhl.com player link">
+            <span class="who" id="player1who"></span>
+          </label>
+          <label>Player 2
+            <input id="player2" inputmode="numeric" autocomplete="off" placeholder="ID or nhl.com player link">
+            <span class="who" id="player2who"></span>
+          </label>
+        </div>
+        <div class="players-actions">
+          <button class="save" id="savePlayers" type="submit">Save players</button>
+        </div>
+      </form>
+      <div class="msg" id="playersMsg" role="status" aria-live="polite"></div>
+      <p class="hint">The ID is the number at the end of a player's nhl.com link, e.g. nhl.com/player/gavin-mckenna-<b>8486067</b>. You can paste the whole link. Leave a box empty for just one player.</p>
     </section>
 
     <h1 style="margin-top:16px">Recent events</h1>
@@ -241,6 +278,95 @@ async function loadTeams() {
 }
 
 $('reset').addEventListener('click', () => { if (!busy) putTeams(null); });
+
+// ------------------------------------------------------------------ favorite players
+
+let playersState = null, playersBusy = false;
+const POSITIONS = { C: 'C', L: 'LW', R: 'RW', D: 'D', G: 'G' };
+
+function playersMsg(text, isError = false) {
+  $('playersMsg').textContent = text;
+  $('playersMsg').classList.toggle('err', isError);
+}
+
+function describePlayer(p) {
+  if (!p) return '';
+  if (!p.name) return `ID ${p.id} (loading…)`;
+  return [p.number != null ? `#${p.number}` : '', p.name, p.team, POSITIONS[p.position] || p.position]
+    .filter(Boolean).join(' · ');
+}
+
+function renderPlayers(updateInputs = true) {
+  if (!playersState) return;
+  const favs = playersState.favorite_players;
+  ['player1', 'player2'].forEach((id, i) => {
+    const p = favs[i];
+    // Don't overwrite what someone is typing.
+    if (updateInputs && document.activeElement !== $(id)) $(id).value = p ? p.id : '';
+    $(id + 'who').textContent = describePlayer(p);
+  });
+  const custom = favs.map((p) => p.id).join() !== playersState.configured_players.join();
+  $('resetPlayers').hidden = !custom;
+  $('resetPlayers').textContent = 'Reset to config';
+  if (favs.length > 2) playersMsg(`Showing the first 2 of ${favs.length} favorite players; saving here keeps only these 2.`);
+}
+
+function parsePlayerInput(text) {
+  // Accept a bare ID or a pasted nhl.com link (the ID is its last number).
+  const t = text.trim();
+  if (!t) return null;
+  const nums = t.match(/\d+/g);
+  return nums ? Number(nums[nums.length - 1]) : NaN;
+}
+
+async function putPlayers(players) {
+  playersBusy = true;
+  $('savePlayers').disabled = true;
+  playersMsg('Looking up players…');
+  try {
+    const r = await fetch('/control/players', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ players }),
+    });
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.detail || `HTTP ${r.status}`);
+    playersState = body;
+    renderPlayers();
+    const names = body.favorite_players.map((p) => p.name || `ID ${p.id}`);
+    playersMsg(names.length ? `Now featuring ${names.join(' and ')}` : 'No favorite players');
+  } catch (e) {
+    playersMsg(`Couldn't save: ${e.message}`, true);
+  } finally {
+    playersBusy = false;
+    $('savePlayers').disabled = false;
+  }
+}
+
+$('playersForm').addEventListener('submit', (ev) => {
+  ev.preventDefault();
+  if (playersBusy) return;
+  const ids = [];
+  for (const [i, id] of ['player1', 'player2'].entries()) {
+    const value = parsePlayerInput($(id).value);
+    if (value === null) continue;
+    if (!Number.isInteger(value) || value <= 0) {
+      playersMsg(`Player ${i + 1}: enter a player ID (digits) or an nhl.com player link.`, true);
+      $(id).focus();
+      return;
+    }
+    ids.push(value);
+  }
+  putPlayers(ids);
+});
+$('resetPlayers').addEventListener('click', () => { if (!playersBusy) putPlayers(null); });
+
+async function loadPlayers() {
+  try {
+    const r = await fetch('/control/players');
+    if (r.ok) { playersState = await r.json(); renderPlayers(); }
+  } catch (e) { /* backend restarting */ }
+}
 $('multi').addEventListener('change', () => {
   msg($('multi').checked ? 'Tap teams to add or remove them.' : '');
 });
@@ -256,12 +382,16 @@ function eventLine(e) {
 
 function connect() {
   const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/events`);
-  ws.onopen = () => { $('status').textContent = 'live'; loadTeams(); };
+  ws.onopen = () => { $('status').textContent = 'live'; loadTeams(); loadPlayers(); };
   ws.onclose = () => { $('status').textContent = 'disconnected, retrying…'; setTimeout(connect, 2000); };
   ws.onmessage = (raw) => {
     const m = JSON.parse(raw.data);
     if (m.type === 'screen') {
       showScreen(m.screen);
+    } else if (m.type === 'players') {
+      // Changed elsewhere (another browser).
+      playersState = { ...playersState, ...m };
+      renderPlayers();
     } else if (m.type === 'teams') {
       // Changed elsewhere (another browser or `displayteam`).
       const changed = teamState && m.favorite_teams.join() !== teamState.favorite_teams.join();

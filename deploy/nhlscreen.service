@@ -1,0 +1,23 @@
+# Install on the Pi:
+#   sudo cp deploy/nhlscreen.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now nhlscreen
+#   journalctl -u nhlscreen -f
+# Adjust User and paths if you didn't clone to /home/pi/nhlscreen.
+
+[Unit]
+Description=NHL LED board backend
+# Pis have no RTC: wait for NTP so game-time logic isn't working from 1970.
+After=network-online.target time-sync.target
+Wants=network-online.target time-sync.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/nhlscreen
+ExecStart=/home/pi/nhlscreen/.venv/bin/python -m nhlscreen --config /home/pi/nhlscreen/config.yaml
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

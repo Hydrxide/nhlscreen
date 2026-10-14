@@ -1,0 +1,96 @@
+# nhlscreen: context for Claude sessions
+
+A DIY LED scoreboard for live NHL stats. This repo is the **backend + renderer**. It polls the NHL's public web API, turns data into "screens", decides what the board shows, and draws each screen as a 128×64 RGB frame. The browser preview at `/` shows exactly what the panel shows. `README.md` is the user-facing guide; this file is the working context: decisions, conventions, and what's next.
+
+## Status (as of 2026-10-14)
+
+- **Done:** NHL client, parsers, event detection, scheduler, FastAPI API + WebSocket, browser preview with team picker, `displayteam` CLI, replay/demo system, 128×64 LED renderer (fonts + layouts), 77 passing tests.
+- **Not started:** the hardware output process on the Pi (see *Next steps*).
+
+## Commands
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -e '.[dev]'   # setup (no uv on the dev Mac)
+.venv/bin/pytest -q                                          # all tests; offline, ~6s
+.venv/bin/python -m nhlscreen                                # live NHL data -> http://127.0.0.1:8080/
+.venv/bin/python tools/synth_replay.py --out replays/synthetic          # build demo game (gitignored, ~17MB)
+.venv/bin/python -m nhlscreen --replay replays/synthetic --speed 10     # demo: full game in ~7 min
+.venv/bin/python tools/render_previews.py --out previews/              # every screen type -> LED PNGs
+.venv/bin/displayteam EDM            # switch followed team on a running backend (--reset, --list)
+```
+
+`config.yaml` (gitignored) overrides defaults; copy `config.example.yaml`. macOS has no `timeout` command; run servers as background tasks. `GET /render/frame.png` gives the live frame as a PNG.
+
+## Architecture
+
+```
+NHL API -> nhl/client.py -> nhl/parsers.py -> nhl/models.py
+               ^                                   |
+     services/poller.py (adaptive loops) -----> store.py --> services/events.py (GameEvents)
+                                                   |                |
+                                     services/scheduler.py <--------+  (alerts / live / rotation)
+                                                   |
+                                     views.py (Screen: data + spans + lines)
+                                                   |
+                       api/app.py (REST, WS /events, /render/frame) --> render/ (128x64 frames)
+                                                   |
+                                     api/debug.html (LED preview + team picker at /)
+```
+
+| Module | Role |
+|---|---|
+| `nhl/client.py` | httpx client. Honors CDN `Cache-Control: max-age`; host-wide exponential backoff on 429/5xx/network errors (honors `Retry-After`, max 120s); returns last good data on failure. |
+| `nhl/parsers.py` | **The only code that touches raw NHL JSON.** Forgiving `.get` parsing. Fix API changes here. |
+| `services/poller.py` | asyncio loops: scoreboard (20s live / 60s pregame / 15min idle), favorite-game tracking (play-by-play every 5s + right-rail stats every 30s, starts 15 min before puck drop), slow refreshes (standings/leaders/players 1h, schedules 6h). `favorites_changed()` re-targets tracking. |
+| `services/events.py` | Diffs snapshots into goal / goal_overturned / penalty / period_start / period_end / game_final. First sighting of a game is silent (no alert flood on startup or mid-game team switch). |
+| `services/scheduler.py` | What's on screen: alerts > live favorite game > rotation (next game, scoreboard pages, standings, leaders, player cards). Rotation resumes during intermissions. |
+| `views.py` | Builds `Screen` models. Each screen has `data` (structured), `spans` (tagged text), `lines` (plain text, derived from spans). |
+| `render/` | Pure-Python renderer, no hardware deps: `fonts.py` (hand-drawn 5×7 + 3×5 pixel fonts), `canvas.py` (RGB buffer, text, LED-dot PNG), `layouts.py` (per-screen layouts). |
+| `runtime.py` | Wires everything; favorite-team switching + persistence (`nhlscreen-state.json` next to the config). |
+| `replay.py` | httpx transport that serves recorded frames, so the whole pipeline runs unmodified in demos and tests. |
+| `static/teams.py` | Team names, brand colors, LED display colors, the home/away rule. |
+
+## NHL API notes (unofficial, undocumented: `api-web.nhle.com/v1`)
+
+- `/score/now` 307-redirects to `/score/{date}`; the CDN caches it ~19s. Gamecenter endpoints (`play-by-play`, `landing`, `right-rail`) are `max-age=0`.
+- `play-by-play` has score, clock, `situation`, and all events. `right-rail` has team stats (SOG, faceoffs, PP, hits) in one small response. `landing` has three stars.
+- `situationCode` is 4 digits: away goalie, away skaters, home skaters, home goalie. **Pulled goalie = extra attacker, not a power play.** Official strength subtracts one skater for a pulled goalie (`Situation.away_strength`), which matches the NHL's own ev/pp/sh labels on all test goals.
+- The NHL removes an overturned goal's play from play-by-play; the detector emits `goal_overturned` when a seen goal id disappears.
+- For untracked games the scoreboard **score change** is authoritative (the goal list can lag).
+- Standings `wildcardSequence` is 0 for division leaders. No published rate limits; ~15 req/min during a favorite game is fine.
+
+## Live clock
+
+`data.clock` = `seconds_remaining`, `running`, `as_of`, `rate`. Renderers count down: `seconds_remaining - (now - as_of) * rate`. **`as_of` is when that clock reading first arrived** (`Store.clock_as_of`), not the fetch time, otherwise re-fetching an unchanged reading makes the countdown stall then jump. `rate` is 1 live and equals the replay speed in demos.
+
+## Display decisions (made by the user; keep them unless asked)
+
+**Text colors (spans):** every screen's text is `spans`, lines of `{kind, text, color?}`:
+- `label` = **white**: titles, ranks (`1.`), `NEXT:`/`LAST:`, `vs`/`@`, stat names (`SOG`, `GP`), `GOAL!`, `A:`.
+- `value` = **gold** (255,176,0): scores, clock, **period names** (`2ND`, `OT`, `1ST INT`), `FINAL`/`FINAL/OT`, start times, records, stat values, results (`L 4-5`).
+- `team` = team code in its resolved color. `player` = player name in **its team's own color, always** (even on the away side).
+- Any span may carry an explicit `color` that overrides its kind. The backend resolves colors so renderers never apply the rules themselves.
+
+**Team colors:** `display` = primary brand color with hue kept and HSV brightness raised to at least 0.70 (dark navy/black barely light LEDs). Black/grey primaries use the secondary (LA → silver). `LED_OVERRIDES`: COL wine `B8244A`, EDM orange, SEA ice blue. Never fall back to white.
+
+**Home/away rule:** only for *live game info*: the live game screen and goal / no-goal alerts' score line. Home = its color, away = **white** (jersey convention). Scoreboard pages, final alert, standings, leaders, etc. use each team's own color, even if two teams look alike.
+
+**Goal alert:** the whole `TEAM GOAL!` banner is the scoring team's own color (home or away), then a **white divider line**, then scorer (season total in gold, PPG/SHG tag), assists, score line.
+
+**Live game layout (128×64):** team codes 2×, scores 3×, period above a 2× clock between the scores (clock drops to 1× if two-digit scores would crowd it), PP/EN line under the clock, two-color divider at y=42, SOG row, then up to two small-font stat rows (PP, FO).
+
+**Other:** ranks render as `1.`; small-font `@` reads as "e", so the player card says `AT`. Standings highlight the followed team's row with a neutral grey bar (a team-colored bar hid that team's code). Defaults: team TOR; players Gavin McKenna `8486067` and Sergei Bobrovsky `8475683`.
+
+## Working conventions
+
+- Tests use recorded fixtures in `tests/fixtures/` (real API responses, TOR @ UTA 2026-10-13); **no network in tests**. Patch `poller.favorites_changed` or use a stub client when exercising team switches.
+- **Visual changes:** run `tools/render_previews.py` and look at the PNGs (Claude can Read them) before calling a layout done; check worst cases (long names, two assists, two-digit scores, conference tables).
+- The user reviews in the browser demo; restart the demo server after backend changes (`debug.html` is re-read per request, Python isn't).
+- Keep span semantics: when adding text, tag it `label`/`value`/`team`/`player` rather than formatting strings.
+- Update `README.md` when user-facing behavior changes. Python ≥3.11 (Raspberry Pi OS Bookworm ships 3.11).
+
+## Next steps
+
+1. **Pi matrix output:** a separate process (needs root for GPIO) that subscribes to `ws://localhost:8080/events`, keeps the current screen, calls `render()` at ~10 fps, and pushes frames with `rpi-rgb-led-matrix` (`SetImage`/canvas, `--led-rows=64 --led-cols=64 --led-chain=2`). Blacklist `snd_bcm2835` (the library refuses to run with onboard audio) and consider `isolcpus=3`. Add a systemd unit next to `deploy/nhlscreen.service`.
+2. Tune colors/brightness on the real panel (blue is the dimmest color on black; `MIN_BRIGHTNESS` and `LED_OVERRIDES` in `static/teams.py`).
+3. Ideas raised but not built: show the last goal on the live screen when team stats are missing; drop the team code on the leaders screen if name + code run together on the panel.

@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nhlscreen</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: #111; color: #ddd; font: 14px/1.4 system-ui, sans-serif; }
+  h1 { font-size: 16px; margin: 0 0 12px; color: #999; font-weight: 500; }
+  h2 { font-size: 15px; margin: 0; color: #eee; font-weight: 600; }
+  h3 { font-size: 11px; margin: 12px 0 6px; color: #888; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; }
+  .wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+  @media (max-width: 800px) { .wrap { grid-template-columns: 1fr; } }
+  .panel { background: #000; border: 6px solid #222; border-radius: 6px; padding: 6px; line-height: 0; }
+  .panel canvas { width: 100%; height: auto; aspect-ratio: 2 / 1; display: block; }
+  .meta { color: #777; font-size: 12px; margin-top: 6px; }
+  .bar { height: 6px; background: #333; margin-top: 8px; border-radius: 3px; overflow: hidden; }
+  .bar span { display: block; height: 100%; background: #6af; width: 0; }
+  pre { background: #1a1a1a; padding: 10px; border-radius: 6px; overflow: auto; max-height: 60vh; font-size: 12px; margin: 0; }
+  ul { list-style: none; padding: 0; margin: 8px 0 0; font: 12px ui-monospace, Menlo, monospace; color: #aaa; }
+  li { padding: 2px 0; border-bottom: 1px solid #222; }
+  .status { float: right; font-size: 12px; }
+
+  /* team picker */
+  .picker { background: #1a1a1a; border-radius: 8px; padding: 12px 14px 14px; margin-top: 16px; }
+  .picker-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+  .multi { display: flex; align-items: center; gap: 6px; color: #aaa; cursor: pointer; user-select: none; margin-left: auto; }
+  .reset { background: #333; color: #ddd; border: 0; border-radius: 6px; padding: 6px 10px; font: inherit; cursor: pointer; }
+  .reset:hover { background: #444; }
+  .chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
+  .chip { position: relative; min-height: 58px; border: 0; border-radius: 6px; padding: 16px 4px 6px; cursor: pointer;
+          font: inherit; text-align: center; opacity: .82; transition: opacity .12s, transform .12s; }
+  .chip:hover, .chip:focus-visible { opacity: 1; }
+  .chip:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  .chip:active { transform: scale(.96); }
+  .chip[aria-pressed="true"] { opacity: 1; box-shadow: 0 0 0 3px #fff, 0 0 14px rgba(255,255,255,.35); }
+  .chip b { display: block; font-size: 16px; letter-spacing: .04em; }
+  .chip small { display: block; font-size: 10px; opacity: .85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .badge { position: absolute; top: 3px; right: 4px; font-size: 9px; line-height: 12px; font-weight: 700; padding: 0 4px;
+           border-radius: 3px; background: rgba(0,0,0,.75); color: #fff; white-space: nowrap; }
+  .badge.live { background: #e11; }
+  .busy .chip { cursor: progress; }
+  .msg { min-height: 1.4em; margin-top: 10px; color: #8c8; font-size: 13px; }
+  .msg.err { color: #f77; }
+</style>
+</head>
+<body>
+<h1>nhlscreen · board preview <span class="status" id="status">connecting…</span></h1>
+<div class="wrap">
+  <div>
+    <div class="panel"><canvas id="led" width="768" height="384" aria-label="LED matrix preview"></canvas></div>
+    <div class="bar"><span id="dwell"></span></div>
+    <div class="meta" id="meta"></div>
+
+    <section class="picker" aria-labelledby="following-label">
+      <div class="picker-head">
+        <h2 id="following-label">Following <span id="following">…</span></h2>
+        <button class="reset" id="reset" hidden></button>
+        <label class="multi"><input type="checkbox" id="multi"> Follow several</label>
+      </div>
+      <div id="teamGrid"></div>
+      <div class="msg" id="pickerMsg" role="status" aria-live="polite"></div>
+    </section>
+
+    <h1 style="margin-top:16px">Recent events</h1>
+    <ul id="events"></ul>
+  </div>
+  <pre id="json"></pre>
+</div>
+<script>
+let screen = null, shownAt = Date.now();
+let teamState = null, busy = false;
+const $ = (id) => document.getElementById(id);
+const rgb = (c) => c ? `rgb(${c[0]},${c[1]},${c[2]})` : '#fc0';
+const ink = (c) => (0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]) > 150 ? '#000' : '#fff';
+
+// ------------------------------------------------------------------ board preview
+
+// The backend renders each frame exactly as the LED matrix will show it
+// (GET /render/frame: width*height RGB bytes); this draws it as LED dots.
+const UNLIT = '#161616';
+let frameSize = null;
+
+function drawFrame(bytes, w, h) {
+  const canvas = $('led');
+  const pitch = Math.max(2, Math.floor(1536 / w));  // fixed-resolution backing store
+  if (canvas.width !== w * pitch) { canvas.width = w * pitch; canvas.height = h * pitch; }
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const r = pitch * 0.42;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 3, red = bytes[i], green = bytes[i + 1], blue = bytes[i + 2];
+      ctx.fillStyle = red | green | blue ? `rgb(${red},${green},${blue})` : UNLIT;
+      ctx.beginPath();
+      ctx.arc(x * pitch + pitch / 2, y * pitch + pitch / 2, r, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+  }
+}
+
+async function frameLoop() {
+  try {
+    const r = await fetch('/render/frame', { cache: 'no-store' });
+    if (r.ok) {
+      const w = +r.headers.get('X-Width'), h = +r.headers.get('X-Height');
+      frameSize = `${w}×${h}`;
+      drawFrame(new Uint8Array(await r.arrayBuffer()), w, h);
+    }
+  } catch (e) { /* backend restarting; keep the last frame */ }
+  setTimeout(frameLoop, 200);
+}
+
+function render() {
+  if (!screen) return;
+  const pct = Math.min(100, (Date.now() - shownAt) / 10 / screen.dwell_seconds);
+  $('dwell').style.width = pct + '%';
+}
+
+function showScreen(s) {
+  if (!s) return;
+  if (!screen || screen.id !== s.id) shownAt = Date.now();
+  screen = s;
+  $('json').textContent = JSON.stringify(screen, null, 2);
+  $('meta').textContent = `${screen.type} · ${screen.id} · priority ${screen.priority} · dwell ${screen.dwell_seconds}s` +
+    (frameSize ? ` · ${frameSize} LEDs` : '');
+}
+
+// ------------------------------------------------------------------ team picker
+
+function msg(text, isError = false) {
+  $('pickerMsg').textContent = text;
+  $('pickerMsg').classList.toggle('err', isError);
+}
+
+let chipsByTeam = new Map(), gridSignature = '';
+
+function buildGrid() {
+  // Group by division (Eastern: Atlantic, Metropolitan; Western: Central, Pacific).
+  const groups = new Map();
+  for (const t of teamState.teams) {
+    const key = t.division || 'All teams';
+    if (!groups.has(key)) groups.set(key, { order: `${t.conference}|${key}`, teams: [] });
+    groups.get(key).teams.push(t);
+  }
+  chipsByTeam = new Map();
+  const sections = [...groups.entries()].sort((a, b) => a[1].order.localeCompare(b[1].order)).map(([name, g]) => {
+    const section = document.createElement('div');
+    const h = document.createElement('h3');
+    h.textContent = name;
+    const chips = document.createElement('div');
+    chips.className = 'chips';
+    for (const t of g.teams) {
+      const b = document.createElement('button');
+      b.className = 'chip';
+      b.type = 'button';
+      b.style.background = rgb(t.color);
+      b.style.color = ink(t.color);
+      b.innerHTML = '<b></b><small></small><span class="badge" hidden></span>';
+      b.querySelector('b').textContent = t.abbrev;
+      b.querySelector('small').textContent = t.name;
+      b.addEventListener('click', () => pick(t.abbrev));
+      chipsByTeam.set(t.abbrev, b);
+      chips.append(b);
+    }
+    section.append(h, chips);
+    return section;
+  });
+  $('teamGrid').replaceChildren(...sections);
+}
+
+function renderTeams() {
+  if (!teamState) return;
+  const fav = teamState.favorite_teams, configured = teamState.configured_teams;
+  $('following').textContent = fav.join(' + ');
+  $('reset').hidden = fav.join() === configured.join();
+  $('reset').textContent = `Reset to config (${configured.join(', ')})`;
+  if (fav.length > 1) $('multi').checked = true;
+
+  // Rebuild only when the grouping changes (e.g. standings arrive); otherwise
+  // update chips in place so a tap during a refresh isn't lost.
+  const signature = teamState.teams.map((t) => `${t.abbrev}:${t.division}`).join();
+  if (signature !== gridSignature) { buildGrid(); gridSignature = signature; }
+
+  for (const t of teamState.teams) {
+    const b = chipsByTeam.get(t.abbrev), g = t.game, badge = b.querySelector('.badge');
+    b.setAttribute('aria-pressed', fav.includes(t.abbrev));
+    b.title = `${t.name}${g ? (g.state === 'live' ? ` (live: ${g.label})` : ` (plays at ${g.label})`) : ''}`;
+    badge.hidden = !g;
+    badge.classList.toggle('live', !!g && g.state === 'live');
+    badge.textContent = g ? (g.state === 'live' ? 'LIVE' : g.label) : '';
+  }
+}
+
+async function pick(abbrev) {
+  if (busy || !teamState) return;
+  const fav = teamState.favorite_teams;
+  let teams;
+  if ($('multi').checked) {
+    teams = fav.includes(abbrev) ? fav.filter((t) => t !== abbrev) : [...fav, abbrev];
+    if (!teams.length) { msg('Keep at least one team selected.', true); return; }
+  } else {
+    if (fav.length === 1 && fav[0] === abbrev) return;
+    teams = [abbrev];
+  }
+  await putTeams(teams);
+}
+
+async function putTeams(teams) {
+  busy = true;
+  $('teamGrid').classList.add('busy');
+  msg('Switching…');
+  try {
+    const r = await fetch('/control/teams', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ teams }),
+    });
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.detail || `HTTP ${r.status}`);
+    teamState = body;
+    renderTeams();
+    showScreen(body.screen);
+    msg(`Now following ${body.favorite_teams.join(' + ')}`);
+  } catch (e) {
+    msg(`Couldn't switch: ${e.message}`, true);
+  } finally {
+    busy = false;
+    $('teamGrid').classList.remove('busy');
+  }
+}
+
+async function loadTeams() {
+  try {
+    const r = await fetch('/control/teams');
+    if (r.ok) { teamState = await r.json(); renderTeams(); }
+  } catch (e) { /* backend restarting; the next refresh will retry */ }
+}
+
+$('reset').addEventListener('click', () => { if (!busy) putTeams(null); });
+$('multi').addEventListener('change', () => {
+  msg($('multi').checked ? 'Tap teams to add or remove them.' : '');
+});
+
+// ------------------------------------------------------------------ live updates
+
+function eventLine(e) {
+  const li = document.createElement('li');
+  li.textContent = `${new Date(e.occurred_at).toLocaleTimeString()}  ${e.kind}  ${e.away_abbrev} ${e.away_score ?? ''}-${e.home_score ?? ''} ${e.home_abbrev}` +
+    (e.goal ? `  ${e.goal.scorer_name}` : '') + (e.penalty ? `  ${e.penalty.team_abbrev} ${e.penalty.description}` : '');
+  return li;
+}
+
+function connect() {
+  const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/events`);
+  ws.onopen = () => { $('status').textContent = 'live'; loadTeams(); };
+  ws.onclose = () => { $('status').textContent = 'disconnected, retrying…'; setTimeout(connect, 2000); };
+  ws.onmessage = (raw) => {
+    const m = JSON.parse(raw.data);
+    if (m.type === 'screen') {
+      showScreen(m.screen);
+    } else if (m.type === 'teams') {
+      // Changed elsewhere (another browser or `displayteam`).
+      const changed = teamState && m.favorite_teams.join() !== teamState.favorite_teams.join();
+      teamState = { ...teamState, ...m };
+      renderTeams();
+      if (changed && !busy) msg(`Now following ${m.favorite_teams.join(' + ')}`);
+    } else if (m.type === 'event') {
+      // Period starts / finals change LIVE badges; refresh soon after (debounced).
+      clearTimeout(window.__teamsRefresh);
+      window.__teamsRefresh = setTimeout(loadTeams, 1000);
+      $('events').prepend(eventLine(m.event));
+      while ($('events').children.length > 30) $('events').lastChild.remove();
+    }
+  };
+}
+
+fetch('/events/recent').then((r) => r.json()).then((evs) => evs.forEach((e) => $('events').prepend(eventLine(e)))).catch(() => {});
+connect();
+setInterval(render, 250);
+frameLoop();
+setInterval(loadTeams, 60000);  // refresh LIVE / start-time badges
+</script>
+</body>
+</html>

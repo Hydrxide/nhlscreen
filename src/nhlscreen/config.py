@@ -33,7 +33,11 @@ class RotationEntry(BaseModel):
     screen: ScreenKind
     dwell: float = Field(8.0, gt=0)
     # standings only
-    scope: Literal["division", "conference", "league"] = "division"
+    # division: one table per division containing a followed team
+    # conference: followed teams' conferences, paged 8 rows at a time
+    # league: all 32 teams, paged
+    # wildcard: playoff format (division top 3s + wild card race) per followed conference
+    scope: Literal["division", "conference", "league", "wildcard"] = "division"
     limit: int | None = None
 
 
@@ -51,6 +55,8 @@ class DisplayConfig(BaseModel):
             RotationEntry(screen="next_game", dwell=10),
             RotationEntry(screen="scoreboard", dwell=8),
             RotationEntry(screen="standings", scope="division", dwell=12),
+            RotationEntry(screen="standings", scope="wildcard", dwell=12),
+            RotationEntry(screen="standings", scope="league", dwell=10),
             RotationEntry(screen="leaders", dwell=8),
             RotationEntry(screen="player_card", dwell=8),
         ]

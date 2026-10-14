@@ -4,7 +4,7 @@ A DIY LED scoreboard for live NHL stats. This repo is the **backend + renderer**
 
 ## Status (as of 2026-10-14)
 
-- **Done:** NHL client, parsers, event detection, scheduler, FastAPI API + WebSocket, browser preview with team picker, `displayteam` CLI, replay/demo system, 128×64 LED renderer (fonts + layouts), 77 passing tests.
+- **Done:** NHL client, parsers, event detection, scheduler, FastAPI API + WebSocket, browser preview with team picker, `displayteam` CLI, replay/demo system, 128×64 LED renderer (fonts + layouts), 83 passing tests.
 - **Not started:** the hardware output process on the Pi (see *Next steps*).
 
 ## Commands
@@ -43,7 +43,7 @@ NHL API -> nhl/client.py -> nhl/parsers.py -> nhl/models.py
 | `nhl/parsers.py` | **The only code that touches raw NHL JSON.** Forgiving `.get` parsing. Fix API changes here. |
 | `services/poller.py` | asyncio loops: scoreboard (20s live / 60s pregame / 15min idle), favorite-game tracking (play-by-play every 5s + right-rail stats every 30s, starts 15 min before puck drop), slow refreshes (standings/leaders/players 1h, schedules 6h). `favorites_changed()` re-targets tracking. |
 | `services/events.py` | Diffs snapshots into goal / goal_overturned / penalty / period_start / period_end / game_final. First sighting of a game is silent (no alert flood on startup or mid-game team switch). |
-| `services/scheduler.py` | What's on screen: alerts > live favorite game > rotation (next game, scoreboard pages, standings, leaders, player cards). Rotation resumes during intermissions. |
+| `services/scheduler.py` | What's on screen: alerts > live favorite game > rotation (next game, scoreboard pages, standings, leaders, player cards). Rotation resumes during intermissions. Standings slots are built per followed division/conference (`_standings_slots`). |
 | `views.py` | Builds `Screen` models. Each screen has `data` (structured), `spans` (tagged text), `lines` (plain text, derived from spans). |
 | `render/` | Pure-Python renderer, no hardware deps: `fonts.py` (hand-drawn 5×7 + 3×5 pixel fonts), `canvas.py` (RGB buffer, text, LED-dot PNG), `layouts.py` (per-screen layouts). |
 | `runtime.py` | Wires everything; favorite-team switching + persistence (`nhlscreen-state.json` next to the config). |
@@ -78,6 +78,8 @@ NHL API -> nhl/client.py -> nhl/parsers.py -> nhl/models.py
 **Goal alert:** the whole `TEAM GOAL!` banner is the scoring team's own color (home or away), then a **white divider line**, then scorer (season total in gold, PPG/SHG tag), assists, score line.
 
 **Live game layout (128×64):** team codes 2×, scores 3×, period above a 2× clock between the scores (clock drops to 1× if two-digit scores would crowd it), PP/EN line under the clock, two-color divider at y=42, SOG row, then up to two small-font stat rows (PP, FO).
+
+**Standings (default rotation has all three):** *division* tables only for divisions containing a followed team (one per division, every followed team highlighted); *wildcard* (screen type `wildcard`) per followed conference, two columns: division top 3s on the left, WC1/WC2 + cut line + chasers on the right, and a followed team further back takes the last visible row; *league* = all 32 teams paged 8 per screen with an `n/4` counter. `conference` scope also exists (paged), not in the default rotation.
 
 **Other:** ranks render as `1.`; small-font `@` reads as "e", so the player card says `AT`. Standings highlight the followed team's row with a neutral grey bar (a team-colored bar hid that team's code). Defaults: team TOR; players Gavin McKenna `8486067` and Sergei Bobrovsky `8475683`.
 

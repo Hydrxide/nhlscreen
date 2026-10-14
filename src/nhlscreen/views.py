@@ -43,6 +43,7 @@ ScreenType = Literal[
     "live_game",
     "scoreboard",
     "standings",
+    "wildcard",
     "next_game",
     "leaders",
     "player_card",
@@ -424,9 +425,35 @@ def scoreboard_screens(games: list[Game], per_page: int, tz: ZoneInfo, dwell: fl
     return screens
 
 
+STANDINGS_PAGE_ROWS = 8  # rows that fit under the title + column headers at 128x64
+
+
+def _standing_row(s: TeamStanding, rank: int) -> dict[str, Any]:
+    return {
+        "rank": rank,
+        "team": team_view(s.abbrev),
+        "gp": s.games_played,
+        "record": s.record,
+        "points": s.points,
+        "streak": s.streak,
+        "l10": s.l10,
+    }
+
+
+def _standing_spans(r: dict[str, Any]) -> list[Span]:
+    return line(f"{r['rank']:>2}. ", team_span(r["team"]["abbrev"]), " ", value(f"{r['points']:>3}"), "  ",
+                value(r["record"]))
+
+
 def standings_screen(
-    standings: list[TeamStanding], team: str, scope: str, limit: int | None, dwell: float
+    standings: list[TeamStanding],
+    team: str,
+    scope: str,
+    limit: int | None,
+    dwell: float,
+    followed: list[str] | None = None,
 ) -> Screen | None:
+    """One table around ``team``: its division (the usual case), conference or the league."""
     mine = next((s for s in standings if s.abbrev == team), None)
     if mine is None:
         return None
@@ -439,28 +466,66 @@ def standings_screen(
     rows.sort(key=lambda s: getattr(s, rank))
     if limit:
         rows = rows[:limit]
-    data = {
-        "title": title,
-        "scope": scope,
-        "highlight": team,
-        "rows": [
-            {
-                "rank": getattr(s, rank),
-                "team": team_view(s.abbrev),
-                "gp": s.games_played,
-                "record": s.record,
-                "points": s.points,
-                "streak": s.streak,
-                "l10": s.l10,
-            }
-            for s in rows
-        ],
-    }
-    spans = [line(title.upper())] + [
-        line(f"{getattr(s, rank):>2}. ", team_span(s.abbrev), " ", value(f"{s.points:>3}"), "  ", value(s.record))
-        for s in rows
-    ]
+    table = [_standing_row(s, getattr(s, rank)) for s in rows]
+    data = {"title": title, "scope": scope, "highlight": followed or [team], "rows": table}
+    spans = [line(title.upper())] + [_standing_spans(r) for r in table]
     return Screen(id=f"standings:{scope}:{team}", type="standings", dwell_seconds=dwell, data=data, spans=spans)
+
+
+def standings_pages(
+    standings: list[TeamStanding],
+    scope: Literal["league", "conference"],
+    followed: list[str],
+    dwell: float,
+    conference: str | None = None,
+) -> list[Screen]:
+    """A whole league or conference table, split into screens of 8 rows."""
+    if scope == "league":
+        rows, title, rank, key = sorted(standings, key=lambda s: s.league_rank), "NHL Standings", "league_rank", "league"
+    else:
+        rows = sorted((s for s in standings if s.conference == conference), key=lambda s: s.conference_rank)
+        title, rank, key = conference or "", "conference_rank", f"conference:{conference}"
+    chunks = [rows[i : i + STANDINGS_PAGE_ROWS] for i in range(0, len(rows), STANDINGS_PAGE_ROWS)]
+    screens = []
+    for n, chunk in enumerate(chunks):
+        table = [_standing_row(s, getattr(s, rank)) for s in chunk]
+        data = {"title": title, "scope": scope, "page": n + 1, "pages": len(chunks), "highlight": followed,
+                "rows": table}
+        spans = [line(f"{title.upper()} {n + 1}/{len(chunks)}")] + [_standing_spans(r) for r in table]
+        screens.append(Screen(id=f"standings:{key}:{n}", type="standings", dwell_seconds=dwell, data=data, spans=spans))
+    return screens
+
+
+WILDCARD_SPOTS = 2  # playoff spots per conference beyond each division's top 3
+
+
+def wildcard_screen(
+    standings: list[TeamStanding], conference: str, followed: list[str], dwell: float
+) -> Screen | None:
+    """The NHL's playoff format for one conference: each division's top 3, then the wild card race."""
+    teams = [s for s in standings if s.conference == conference]
+    if not teams:
+        return None
+    divisions = []
+    for name in sorted({s.division for s in teams}):
+        top = sorted((s for s in teams if s.division == name and not s.wildcard_rank), key=lambda s: s.division_rank)
+        divisions.append({"name": name, "rows": [_standing_row(s, s.division_rank) for s in top[:3]]})
+    race = sorted((s for s in teams if s.wildcard_rank), key=lambda s: s.wildcard_rank)
+    wildcard = [_standing_row(s, s.wildcard_rank) for s in race]
+    data = {
+        "conference": conference,
+        "title": f"{conference} Wild Card",
+        "divisions": divisions,
+        "wildcard": wildcard,
+        "spots": WILDCARD_SPOTS,
+        "highlight": followed,
+    }
+    spans = [line(data["title"].upper())]
+    for block in divisions:
+        spans += [line(block["name"].upper())] + [_standing_spans(r) for r in block["rows"]]
+    spans += [line("WILD CARD")] + [_standing_spans(r) for r in wildcard[:WILDCARD_SPOTS]]
+    spans += [line("----")] + [_standing_spans(r) for r in wildcard[WILDCARD_SPOTS:]]
+    return Screen(id=f"wildcard:{conference}", type="wildcard", dwell_seconds=dwell, data=data, spans=spans)
 
 
 def next_game_screen(

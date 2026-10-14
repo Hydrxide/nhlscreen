@@ -151,3 +151,13 @@ def test_clock_as_of_only_moves_when_reading_changes(store):
     moved.clock = Clock(time_remaining="09:50", seconds_remaining=590, running=True)
     store.set_games([moved])
     assert store.clock_as_of(TOR_GAME) > first
+
+
+def test_rotation_starts_from_the_top_after_idle(fixture):
+    store = Store()
+    sched = Scheduler(store, make_config(rotation=[RotationEntry(screen="next_game", dwell=5),
+                                                   RotationEntry(screen="standings", dwell=5)]))
+    assert sched.tick(T0).type == "idle"  # nothing loaded yet
+    store.set_standings(parsers.parse_standings(fixture("standings.json")))
+    store.set_schedule("TOR", parsers.parse_schedule(fixture("schedule_tor.json")))
+    assert sched.tick(T0 + timedelta(seconds=4)).id == "next_game:TOR"  # first entry, not skipped

@@ -38,16 +38,19 @@ class Scheduler:
         self.current: Screen | None = None
         self._started_at: datetime | None = None
         self._alerts: deque[Screen] = deque()
-        self._playlist: list[Callable[[datetime], Screen | None]] = []
-        self._index = 0
+        # Rotation position: which rotation entry, and which of its slots. Entries
+        # are expanded into slots when reached, so data that arrives after
+        # startup (standings, games) is never skipped for a whole cycle.
+        self._entry = 0
+        self._slot = -1
+        self._builder: Callable[[datetime], Screen | None] | None = None
 
     def reset(self) -> None:
         """Forget the current screen, queued alerts and rotation (e.g. favorites changed)."""
         self.current = None
         self._started_at = None
         self._alerts.clear()
-        self._playlist = []
-        self._index = 0
+        self._entry, self._slot, self._builder = 0, -1, None
 
     # ------------------------------------------------------------------ alerts
 
@@ -95,7 +98,7 @@ class Scheduler:
 
         # 3. Rotation: refresh the current rotation screen's data until its dwell expires.
         if cur and cur.priority == views.PRIORITY_ROTATION and not self._expired(cur, now):
-            refreshed = self._rebuild(self._index - 1, now)
+            refreshed = self._builder(now) if self._builder else None
             if refreshed is not None and refreshed.id == cur.id:
                 return self._show(refreshed, now, keep_start=True)
             return cur
@@ -121,30 +124,26 @@ class Scheduler:
                     out.append(game)
         return out
 
-    def _rebuild(self, index: int, now: datetime) -> Screen | None:
-        if 0 <= index < len(self._playlist):
-            return self._playlist[index](now)
-        return None
-
     def _advance(self, now: datetime) -> Screen:
-        # Try every slot once; rebuild the playlist when a cycle completes.
-        for _ in range(2):
-            while self._index < len(self._playlist):
-                builder = self._playlist[self._index]
-                self._index += 1
-                screen = builder(now)
+        """Move to the next rotation screen that has something to show."""
+        rotation = self.config.display.rotation
+        # Each entry is expanded against current data when reached; visit every
+        # entry at most once (plus the rest of the current one) before idling.
+        for _ in range(len(rotation) + 1):
+            if not rotation:
+                break
+            slots = self._slots_for(rotation[self._entry % len(rotation)], now)
+            while self._slot + 1 < len(slots):
+                self._slot += 1
+                screen = slots[self._slot](now)
                 if screen is not None:
+                    self._builder = slots[self._slot]
                     return self._show(screen, now)
-            self._playlist = self._build_playlist(now)
-            self._index = 0
+            self._entry = (self._entry + 1) % len(rotation)
+            self._slot = -1
+        # Nothing to show yet (e.g. data still loading): start from the top next time.
+        self._entry, self._slot, self._builder = 0, -1, None
         return self._show(views.idle_screen(now, self.config.tz), now)
-
-    def _build_playlist(self, now: datetime) -> list[Callable[[datetime], Screen | None]]:
-        """Expand rotation entries into concrete slots against current data."""
-        slots: list[Callable[[datetime], Screen | None]] = []
-        for entry in self.config.display.rotation:
-            slots.extend(self._slots_for(entry, now))
-        return slots
 
     def _slots_for(self, entry: RotationEntry, now: datetime) -> list[Callable[[datetime], Screen | None]]:
         store, cfg, tz, dwell = self.store, self.config, self.config.tz, entry.dwell
@@ -157,18 +156,7 @@ class Scheduler:
                 for t in teams
             ]
         if entry.screen == "standings":
-            # Only one screen per division/conference even with several favorites in it.
-            seen: set[str] = set()
-            slots = []
-            for t in teams:
-                s = store.standing(t)
-                group = None if s is None else (s.division if entry.scope == "division" else
-                                                s.conference if entry.scope == "conference" else "league")
-                if group in seen:
-                    continue
-                seen.add(group or t)
-                slots.append(lambda now, t=t: views.standings_screen(store.standings, t, entry.scope, entry.limit, dwell))
-            return slots
+            return self._standings_slots(entry)
         if entry.screen == "scoreboard":
             pages = views.scoreboard_screens(self._scoreboard_games(), cfg.display.scoreboard_games_per_page, tz, dwell)
             return [
@@ -188,6 +176,44 @@ class Scheduler:
                 for p in cfg.favorite_players
             ]
         return []
+
+    def _standings_slots(self, entry: RotationEntry) -> list[Callable[[datetime], Screen | None]]:
+        store, dwell, followed = self.store, entry.dwell, self.config.favorite_teams
+
+        def groups(attr: str) -> dict[str, str]:
+            """Division or conference -> first followed team in it (follow order, no repeats)."""
+            out: dict[str, str] = {}
+            for t in followed:
+                s = store.standing(t)
+                if s is not None:
+                    out.setdefault(getattr(s, attr), t)
+            return out
+
+        if entry.scope == "division":  # only divisions that contain a followed team
+            return [
+                (lambda now, t=t: views.standings_screen(store.standings, t, "division", entry.limit, dwell, followed))
+                for t in groups("division").values()
+            ]
+        if entry.scope == "wildcard":
+            return [
+                (lambda now, c=c: views.wildcard_screen(store.standings, c, followed, dwell))
+                for c in groups("conference")
+            ]
+        if entry.scope == "league":
+            pages = len(views.standings_pages(store.standings, "league", followed, dwell))
+            return [
+                (lambda now, n=n: _page(views.standings_pages(store.standings, "league", followed, dwell), n))
+                for n in range(pages)
+            ]
+        slots: list[Callable[[datetime], Screen | None]] = []  # conference, paged
+        for conf in groups("conference"):
+            pages = len(views.standings_pages(store.standings, "conference", followed, dwell, conf))
+            slots += [
+                (lambda now, n=n, c=conf: _page(
+                    views.standings_pages(store.standings, "conference", followed, dwell, c), n))
+                for n in range(pages)
+            ]
+        return slots
 
     def _scoreboard_games(self) -> list[Game]:
         return [self.store.game(gid) or g for gid, g in self.store.games.items()]

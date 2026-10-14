@@ -222,24 +222,32 @@ def layout_scoreboard(cv: Canvas, screen: ScreenDict, now: datetime) -> None:
         cv.text_right(cv.width - 2, y + (1 if font is SMALL else 0), status, font, GOLD)
 
 
+def _highlights(d: dict[str, Any]) -> set[str]:
+    hl = d.get("highlight") or []
+    return {hl} if isinstance(hl, str) else set(hl)
+
+
 def layout_standings(cv: Canvas, screen: ScreenDict, now: datetime) -> None:
     d = screen["data"]
     rows = d.get("rows") or []
+    followed = _highlights(d)
     cv.text(1, 0, d.get("title") or "", REGULAR, WHITE)
+    if (d.get("pages") or 1) > 1:
+        cv.text_right(cv.width - 2, 1, f"{d['page']}/{d['pages']}", SMALL, WHITE)
     # columns (small font): rank | team | GP | record | PTS | streak
     for text, x, right in (("GP", 46, True), ("REC", 52, False), ("PTS", 96, True), ("STK", 104, False)):
         (cv.text_right if right else cv.text)(x, 10, text, SMALL, WHITE)
 
     top, pitch = 17, SMALL.line_height
     max_rows = (cv.height - top + 1) // pitch
-    if len(rows) > max_rows:  # keep the highlighted team in view
-        idx = next((i for i, r in enumerate(rows) if r["team"]["abbrev"] == d.get("highlight")), 0)
+    if len(rows) > max_rows:  # keep a followed team in view
+        idx = next((i for i, r in enumerate(rows) if r["team"]["abbrev"] in followed), 0)
         start = min(max(0, idx - max_rows // 2), len(rows) - max_rows)
         rows = rows[start : start + max_rows]
     for i, r in enumerate(rows):
         y = top + i * pitch
         team = r["team"]
-        if team["abbrev"] == d.get("highlight"):
+        if team["abbrev"] in followed:
             # Neutral bar: a team-colored one hides that team's own code.
             cv.fill(0, y - 1, cv.width, pitch + 1, HIGHLIGHT)
         cv.text_right(8, y, f"{r['rank']}.", SMALL, WHITE)
@@ -248,6 +256,62 @@ def layout_standings(cv: Canvas, screen: ScreenDict, now: datetime) -> None:
         cv.text(52, y, r.get("record") or "", SMALL, GOLD)
         cv.text_right(96, y, str(r.get("points", "")), SMALL, GOLD)
         cv.text(104, y, r.get("streak") or "", SMALL, GOLD)
+
+
+def layout_wildcard(cv: Canvas, screen: ScreenDict, now: datetime) -> None:
+    """
+    EASTERN WILD CARD
+    ATLANTIC         | WILD CARD
+     1. BOS  10      |  1. FLA   8
+     2. OTT  10      |  2. MTL   7
+     3. TBL   8      | ----------- (playoff cut)
+    METROPOLITAN     |  3. TOR   7
+     1. CAR  13      |  4. BUF   7
+     ...             |  ...
+    """
+    d = screen["data"]
+    followed = _highlights(d)
+    pitch = SMALL.line_height
+    cv.text(1, 0, d.get("title") or "", REGULAR, WHITE)
+    mid = cv.width // 2
+    cv.fill(mid, 9, 1, cv.height - 9, (60, 60, 60))
+
+    def row(x0: int, x1: int, y: int, r: dict[str, Any]) -> None:
+        team = r["team"]
+        if team["abbrev"] in followed:
+            cv.fill(x0, y - 1, x1 - x0 + 1, pitch + 1, HIGHLIGHT)
+        cv.text_right(x0 + 9, y, f"{r['rank']}.", SMALL, WHITE)
+        cv.text(x0 + 13, y, team["abbrev"], SMALL, own_color(team))
+        cv.text_right(x1 - 1, y, str(r.get("points", "")), SMALL, GOLD)
+
+    # Left column: each division's top 3.
+    left, left_end, y = 0, mid - 2, 10
+    for block in d.get("divisions") or []:
+        cv.text(left + 1, y, block["name"], SMALL, WHITE)
+        y += pitch
+        for r in block["rows"][:3]:
+            row(left, left_end, y, r)
+            y += pitch
+
+    # Right column: wild card spots, the playoff cut line, then the chasers.
+    right, right_end, y = mid + 2, cv.width - 1, 10
+    cv.text(right + 1, y, "WILD CARD", SMALL, WHITE)
+    y += pitch
+    race, spots = d.get("wildcard") or [], d.get("spots", 2)
+    for r in race[:spots]:
+        row(right, right_end, y, r)
+        y += pitch
+    cv.hline(right, right_end, y, dim(WHITE, 0.6))  # playoff cut line
+    y += 3  # keep a gap so it doesn't merge with a highlight bar below
+    chasers = race[spots:]
+    room = (cv.height - y) // pitch
+    shown = chasers[:room]
+    behind = next((r for r in chasers[room:] if r["team"]["abbrev"] in followed), None)
+    if behind and room:  # a followed team further back takes the last row
+        shown = chasers[: room - 1] + [behind]
+    for r in shown:
+        row(right, right_end, y, r)
+        y += pitch
 
 
 def layout_leaders(cv: Canvas, screen: ScreenDict, now: datetime) -> None:
@@ -328,6 +392,7 @@ LAYOUTS: dict[str, Callable[[Canvas, ScreenDict, datetime], None]] = {
     "live_game": layout_live_game,
     "scoreboard": layout_scoreboard,
     "standings": layout_standings,
+    "wildcard": layout_wildcard,
     "leaders": layout_leaders,
     "player_card": layout_player_card,
     # "TOR GOAL!" banner, a white divider, then scorer / assists / score.

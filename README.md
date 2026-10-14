@@ -29,7 +29,12 @@ Screens are chosen in priority order:
 
 1. **Alerts** for favorite-team goals, overturned goals and finals. Each holds for `alert_seconds`.
 2. **Live game** whenever a favorite team is playing. The rotation resumes during intermissions (configurable).
-3. **Rotation**: next game and last result, the league scoreboard (paged), division standings, stat leaders, and favorite player cards.
+3. **Rotation**: next game and last result, the league scoreboard (paged), standings, stat leaders, and favorite player cards. Standings come in three kinds, each a separate rotation entry in `config.yaml`:
+   - **Division:** only divisions that contain a followed team.
+   - **Wild card:** the NHL playoff format for each conference you follow: every division's top 3, then the wild card spots, a cut line and the chasers.
+   - **League:** all 32 teams across four pages of 8.
+
+   Followed teams are highlighted with a grey bar in every table.
 
 Each screen has this shape:
 

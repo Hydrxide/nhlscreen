@@ -181,3 +181,13 @@ def test_goalie_card_shows_last_game(screens):
     cv = render(screens["goalie_card"].model_dump(mode="json"), NOW)
     assert WHITE in _colors_in(cv, 0, 44, 128, 51)  # "LAST GAME"
     assert set(_gold_rows(cv, 52, 64)) == set(range(54, 61))  # W / saves / save % in regular size
+
+
+def test_scoreboard_rows_mark_away_at_home(screens):
+    screen = screens["scoreboard"]
+    assert all(" @ " in text for text in screen.lines)  # e.g. "NJD  5 @ DET  4  FINAL/OT"
+    cv = render(screen.model_dump(mode="json"), NOW)
+    for i in range(len(screen.data["games"])):
+        y = i * 16 + 4
+        assert WHITE in _colors_in(cv, 35, y, 40, y + 7)  # the "@" between the two teams
+        assert not _colors_in(cv, 32, y, 35, y + 7) and not _colors_in(cv, 40, y, 43, y + 7)  # breathing room

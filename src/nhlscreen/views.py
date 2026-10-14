@@ -414,7 +414,7 @@ def scoreboard_screens(games: list[Game], per_page: int, tz: ZoneInfo, dwell: fl
             return f"{'' if score is None else score:>2}"
 
         spans = [
-            line(team_span(g.away.abbrev), " ", value(pad(g.away.score)), " ",
+            line(team_span(g.away.abbrev), " ", value(pad(g.away.score)), " @ ",
                  team_span(g.home.abbrev), " ", value(pad(g.home.score)), "  ", *status_spans(g, tz))
             for g in page
         ]

@@ -205,20 +205,29 @@ def layout_live_game(cv: Canvas, screen: ScreenDict, now: datetime) -> None:
 # --------------------------------------------------------------------------- tables
 
 
+# Scoreboard columns (x): away 1 | away score ..31 | "@" 35 | home 43 | home score ..74 | status ..126
+# (3px either side of "@"; the widest status, "2ND 12:34", still starts at x=80)
+_SB_AT, _SB_HOME, _SB_HOME_SCORE, _SB_STATUS_MIN = 35, 43, 74, 79
+
+
 def layout_scoreboard(cv: Canvas, screen: ScreenDict, now: datetime) -> None:
+    """One game per row: ``NJD  5 @ DET  4   FINAL/OT`` (away @ home)."""
     games = screen["data"].get("games") or []
     pitch = cv.height // max(4, len(games))
+    # "@" between the teams; "AT" only if a narrower panel can't fit the symbol
+    at = "@" if REGULAR.measure("@") <= _SB_HOME - _SB_AT - 2 else "AT"
     for i, g in enumerate(games):
         y = i * pitch + (pitch - REGULAR.height) // 2
         away, home = g["away"], g["home"]
         cv.text(1, y, away["abbrev"], REGULAR, team_color(away))
         if away.get("score") is not None:
             cv.text_right(31, y, str(away["score"]), REGULAR, GOLD)
-        cv.text(39, y, home["abbrev"], REGULAR, team_color(home))
+        cv.text(_SB_AT, y, at, REGULAR, WHITE)
+        cv.text(_SB_HOME, y, home["abbrev"], REGULAR, team_color(home))
         if home.get("score") is not None:
-            cv.text_right(70, y, str(home["score"]), REGULAR, GOLD)
+            cv.text_right(_SB_HOME_SCORE, y, str(home["score"]), REGULAR, GOLD)
         status = g.get("status") or ""
-        font = REGULAR if REGULAR.measure(status) <= cv.width - 2 - 76 else SMALL
+        font = REGULAR if REGULAR.measure(status) <= cv.width - 2 - _SB_STATUS_MIN else SMALL
         cv.text_right(cv.width - 2, y + (1 if font is SMALL else 0), status, font, GOLD)
 
 

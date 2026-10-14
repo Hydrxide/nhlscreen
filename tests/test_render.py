@@ -143,3 +143,41 @@ def test_goal_alert_has_white_divider_under_banner(screens):
     banner_rows = [y for y in range(cv.height) if get_team("TOR").display in _colors_in(cv, 0, y, cv.width, y + 1)]
     assert min(banner_rows) < rules[0]  # banner above the divider, names below it
     assert any(y > rules[0] for y in banner_rows)
+
+
+def _gold_rows(cv: Canvas, y0: int, y1: int) -> list[int]:
+    return [y for y in range(y0, y1) if any(cv.get(x, y) == GOLD for x in range(cv.width))]
+
+
+@pytest.mark.parametrize("card", ["player_card", "goalie_card"])
+def test_player_card_values_share_one_size(screens, card):
+    cv = render(screens[card].model_dump(mode="json"), NOW)
+    # every stat value (GP ... SV%, GAA) sits in the same 7-row regular-font band
+    assert _gold_rows(cv, 20, 42) and set(_gold_rows(cv, 20, 42)) <= set(range(31, 38))
+
+
+def test_skater_last_game_uses_regular_font(screens):
+    cv = render(screens["player_card"].model_dump(mode="json"), NOW)
+    assert WHITE in _colors_in(cv, 0, 44, 128, 51)  # "LAST GAME"
+    assert set(_gold_rows(cv, 52, 64)) <= set(range(54, 61)) and len(_gold_rows(cv, 52, 64)) == 7  # "1G 0A"
+
+
+def test_last_game_lines():
+    from nhlscreen.render.layouts import last_game_spans
+
+    text = lambda spans: "".join(s["text"] for s in spans)  # noqa: E731
+    goalie = {"decision": "W", "goalsAgainst": 3, "shotsAgainst": 33, "savePctg": 0.909091,
+              "homeRoadFlag": "R", "opponentAbbrev": "COL"}
+    assert text(last_game_spans(goalie)) == "W  30 SV  .909  @ COL"
+    assert text(last_game_spans({**goalie, "decision": "O", "homeRoadFlag": "H"})) == "OTL  30 SV  .909  VS COL"
+    assert text(last_game_spans({**goalie, "decision": None})) == "30 SV  .909  @ COL"  # no decision (relief)
+    assert text(last_game_spans(goalie, max_width=90)) == "W  30 SV  @ COL"  # too narrow: save % dropped
+    skater = {"goals": 1, "assists": 0, "homeRoadFlag": "R", "opponentAbbrev": "UTA"}
+    assert text(last_game_spans(skater)) == "1G 0A  @ UTA"
+    assert last_game_spans({}) is None
+
+
+def test_goalie_card_shows_last_game(screens):
+    cv = render(screens["goalie_card"].model_dump(mode="json"), NOW)
+    assert WHITE in _colors_in(cv, 0, 44, 128, 51)  # "LAST GAME"
+    assert set(_gold_rows(cv, 52, 64)) == set(range(54, 61))  # W / saves / save % in regular size

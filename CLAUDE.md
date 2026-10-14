@@ -4,7 +4,7 @@ A DIY LED scoreboard for live NHL stats. This repo is the **backend + renderer**
 
 ## Status (as of 2026-10-14)
 
-- **Done:** NHL client, parsers, event detection, scheduler, FastAPI API + WebSocket, browser preview with team picker, `displayteam` CLI, replay/demo system, 128×64 LED renderer (fonts + layouts), 83 passing tests.
+- **Done:** NHL client, parsers, event detection, scheduler, FastAPI API + WebSocket, browser preview with team picker, `displayteam` CLI, replay/demo system, 128×64 LED renderer (fonts + layouts), 90 passing tests.
 - **Not started:** the hardware output process on the Pi (see *Next steps*).
 
 ## Commands
@@ -81,7 +81,9 @@ NHL API -> nhl/client.py -> nhl/parsers.py -> nhl/models.py
 
 **Standings (default rotation has all three):** *division* tables only for divisions containing a followed team (one per division, every followed team highlighted); *wildcard* (screen type `wildcard`) per followed conference, two columns: division top 3s on the left, WC1/WC2 + cut line + chasers on the right, and a followed team further back takes the last visible row; *league* = all 32 teams paged 8 per screen with an `n/4` counter. `conference` scope also exists (paged), not in the default rotation.
 
-**Other:** ranks render as `1.`; small-font `@` reads as "e", so the player card says `AT`. Standings highlight the followed team's row with a neutral grey bar (a team-colored bar hid that team's code). Defaults: team TOR; players Gavin McKenna `8486067` and Sergei Bobrovsky `8475683`.
+**Player cards:** small white stat labels over stat values that are **all regular (1×) size**, so goalie decimals (GAA, SV%) match whole numbers. Both skaters and goalies get "LAST GAME" plus one line in regular size (the small font was too hard to read): skaters `1G 0A @ UTA`, goalies `W  30 SV  .909  @ COL` (decision W/L/OTL omitted for no-decision; save % dropped if too wide). Built by `last_game_spans()` in `render/layouts.py`. Avoid `@` in the small font (it reads as "e").
+
+**Other:** ranks render as `1.`; Standings highlight the followed team's row with a neutral grey bar (a team-colored bar hid that team's code). Defaults: team TOR; players Gavin McKenna `8486067` and Sergei Bobrovsky `8475683`.
 
 ## Working conventions
 

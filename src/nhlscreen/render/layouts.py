@@ -362,28 +362,51 @@ def layout_player_card(cv: Canvas, screen: ScreenDict, now: datetime) -> None:
     if sub:
         _spans_center(cv, 12, sub, SMALL)
 
+    # Stat labels (small) over values (regular). Every value uses the same size, so
+    # decimals like GAA 2.97 / SV% .907 match the whole numbers beside them.
     stats = d.get("stats") or []
     if stats:
         col = cv.width // len(stats)
         for i, st in enumerate(stats):
             cx = i * col + col // 2
-            cv.text_center(cx, 25, st["label"], SMALL, WHITE)
-            if REGULAR.measure(st["display"], 2) <= col - 2:
-                cv.text_center(cx, 33, st["display"], REGULAR, GOLD, 2)
-            else:
-                cv.text_center(cx, 37, st["display"], REGULAR, GOLD)
+            cv.text_center(cx, 24, st["label"], SMALL, WHITE)
+            cv.text_center(cx, 31, st["display"], REGULAR, GOLD)
 
-    last = d.get("last_game") or {}
-    if "goals" in last:  # skaters
-        at = "AT " if last.get("homeRoadFlag") == "R" else "VS "  # small-font "@" reads as "e"
-        spans = [
-            {"kind": "label", "text": "LAST GAME  "},
-            {"kind": "value", "text": f"{last.get('goals', 0)}G {last.get('assists', 0)}A"},
-            {"kind": "label", "text": "  " + at},
-            {"kind": "team", "text": last.get("opponentAbbrev", ""),
-             "color": get_team(last.get("opponentAbbrev", "")).display},
-        ]
-        _spans_center(cv, 57, spans, SMALL)
+    spans = last_game_spans(d.get("last_game") or {}, max_width=cv.width - 2)
+    if spans:  # "LAST GAME" + the line, both regular size
+        _spans_center(cv, 44, [{"kind": "label", "text": "LAST GAME"}], REGULAR)
+        _spans_center(cv, 54, spans, REGULAR)
+
+
+_DECISIONS = {"W": "W", "L": "L", "O": "OTL"}
+
+
+def last_game_spans(last: dict[str, Any], max_width: int = 126) -> list[dict[str, Any]] | None:
+    """A player's last game as one line of spans.
+
+    Skater:  1G 0A  @ UTA
+    Goalie:  W  30 SV  .909  @ COL   (save % is dropped if the line is too wide)
+    """
+    if not last:
+        return None
+    opponent = last.get("opponentAbbrev", "")
+    tail = [
+        {"kind": "label", "text": "  @ " if last.get("homeRoadFlag") == "R" else "  VS "},
+        {"kind": "team", "text": opponent, "color": get_team(opponent).display},
+    ]
+    if "goals" in last:  # skater
+        return [{"kind": "value", "text": f"{last.get('goals', 0)}G {last.get('assists', 0)}A"}, *tail]
+    if "shotsAgainst" not in last:
+        return None
+    head: list[dict[str, Any]] = []
+    if last.get("decision") in _DECISIONS:
+        head += [{"kind": "value", "text": _DECISIONS[last["decision"]]}, {"kind": "label", "text": "  "}]
+    saves = last["shotsAgainst"] - last.get("goalsAgainst", 0)
+    head += [{"kind": "value", "text": str(saves)}, {"kind": "label", "text": " SV"}]
+    pct = last.get("savePctg")
+    with_pct = head + ([{"kind": "label", "text": "  "}, {"kind": "value", "text": f"{pct:.3f}".lstrip("0")}]
+                       if pct is not None else []) + tail
+    return with_pct if _measure_spans(with_pct, REGULAR) <= max_width else head + tail
 
 
 # --------------------------------------------------------------------------- dispatch

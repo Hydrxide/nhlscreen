@@ -170,7 +170,7 @@ class Runtime:
         if not (self.state_path and self.state_path.exists()):
             return {}
         try:
-            state = json.loads(self.state_path.read_text())
+            state = json.loads(self.state_path.read_text(encoding="utf-8"))
             return state if isinstance(state, dict) else {}
         except (OSError, ValueError) as exc:
             log.warning("ignoring unreadable state file %s: %s", self.state_path, exc)
@@ -200,7 +200,7 @@ class Runtime:
             state[key] = value
         try:
             if state:
-                self.state_path.write_text(json.dumps(state) + "\n")
+                self.state_path.write_text(json.dumps(state) + "\n", encoding="utf-8")
             else:
                 self.state_path.unlink(missing_ok=True)
         except OSError as exc:

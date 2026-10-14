@@ -214,6 +214,6 @@ def create_app(runtime: Runtime, manage_lifecycle: bool = True) -> FastAPI:
 
     @app.get("/debug", response_class=HTMLResponse)
     def debug() -> str:
-        return _DEBUG_HTML.read_text()
+        return _DEBUG_HTML.read_text(encoding="utf-8")
 
     return app

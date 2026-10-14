@@ -47,7 +47,7 @@ def test_swap_players(api, runtime):
                                                                (8486067, "Gavin McKenna", "TOR")]
     assert runtime.config.favorite_players == [8478483, 8486067]
     assert 8478483 in runtime.store.players  # card data is ready right away
-    assert json.loads(runtime.state_path.read_text()) == {"favorite_players": [8478483, 8486067]}
+    assert json.loads(runtime.state_path.read_text(encoding="utf-8")) == {"favorite_players": [8478483, 8486067]}
 
 
 def test_unknown_id_is_rejected_without_changes(api, runtime):
@@ -73,9 +73,9 @@ def test_teams_and_players_are_saved_independently(api, runtime):
     runtime.poller.favorites_changed = _noop
     api.put("/control/players", json={"players": [8478483]})
     api.put("/control/teams", json={"teams": ["EDM"]})
-    assert json.loads(runtime.state_path.read_text()) == {"favorite_players": [8478483], "favorite_teams": ["EDM"]}
+    assert json.loads(runtime.state_path.read_text(encoding="utf-8")) == {"favorite_players": [8478483], "favorite_teams": ["EDM"]}
     api.put("/control/teams", json={"teams": None})  # resetting teams keeps the players
-    assert json.loads(runtime.state_path.read_text()) == {"favorite_players": [8478483]}
+    assert json.loads(runtime.state_path.read_text(encoding="utf-8")) == {"favorite_players": [8478483]}
 
 
 async def _noop():
@@ -84,7 +84,7 @@ async def _noop():
 
 def test_players_survive_restart(tmp_path):
     state = tmp_path / "state.json"
-    state.write_text(json.dumps({"favorite_players": [8478483]}))
+    state.write_text(json.dumps({"favorite_players": [8478483]}), encoding="utf-8")
     rt = Runtime(Config(favorite_players=[8486067, 8475683]), state_path=state)
     assert rt.config.favorite_players == [8478483] and rt.configured_players == [8486067, 8475683]
 

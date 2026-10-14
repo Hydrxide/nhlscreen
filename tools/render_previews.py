@@ -26,7 +26,7 @@ NOW = datetime(2026, 10, 14, 14, 0, tzinfo=timezone.utc)
 
 
 def build_screens(fixtures: Path) -> dict[str, views.Screen]:
-    load = lambda name: json.loads((fixtures / name).read_text())  # noqa: E731
+    load = lambda name: json.loads((fixtures / name).read_text(encoding="utf-8"))  # noqa: E731
     games = parsers.parse_score(load("score.json"))
     standings = parsers.parse_standings(load("standings.json"))
     schedule = parsers.parse_schedule(load("schedule_tor.json"))
@@ -79,7 +79,7 @@ def build_screens(fixtures: Path) -> dict[str, views.Screen]:
         "idle": views.idle_screen(NOW, TZ),
     }
     for f in sorted(fixtures.glob("player_*.json")):
-        player = parsers.parse_player(json.loads(f.read_text()))
+        player = parsers.parse_player(json.loads(f.read_text(encoding="utf-8")))
         screens[f"player_{player.last_name.lower()}"] = views.player_card_screen(player, 8)
     return screens
 

@@ -59,7 +59,7 @@ def test_switch_team_updates_config_screen_and_state(api, runtime):
     assert runtime.config.favorite_teams == ["EDM"]
     assert runtime.poller_calls == 1
     assert body["screen"]["id"] != "next_game:TOR"
-    assert json.loads(runtime.state_path.read_text()) == {"favorite_teams": ["EDM"]}
+    assert json.loads(runtime.state_path.read_text(encoding="utf-8")) == {"favorite_teams": ["EDM"]}
 
 
 def test_unknown_team_rejected(api, runtime):
@@ -77,7 +77,7 @@ def test_reset_restores_config_and_clears_state(api, runtime):
 
 def test_switch_survives_restart(tmp_path):
     state = tmp_path / "state.json"
-    state.write_text(json.dumps({"favorite_teams": ["EDM"]}))
+    state.write_text(json.dumps({"favorite_teams": ["EDM"]}), encoding="utf-8")
     rt = Runtime(Config(favorite_teams=["TOR"]), state_path=state)
     assert rt.config.favorite_teams == ["EDM"] and rt.configured_teams == ["TOR"]
 

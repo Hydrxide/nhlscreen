@@ -139,7 +139,16 @@ def test_overturn_cancels_queued_goal_alert(store):
     assert sched.tick(T0 + timedelta(seconds=11)).type == "goal_overturned"
 
 
-def test_clock_as_of_only_moves_when_reading_changes(store):
+def test_clock_as_of_only_moves_when_reading_changes(store, monkeypatch):
+    # Advance the clock on every call: Windows' clock can return the same time twice in a row.
+    ticks = iter(T0 + timedelta(seconds=n) for n in range(1000))
+
+    class SteppingClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return next(ticks)
+
+    monkeypatch.setattr("nhlscreen.store.datetime", SteppingClock)
     game = store.games[TOR_GAME].model_copy(deep=True)
     game.state, game.period = GameState.LIVE, 1
     game.clock = Clock(time_remaining="10:00", seconds_remaining=600, running=True)

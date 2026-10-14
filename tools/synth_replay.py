@@ -54,7 +54,7 @@ def build(
     intermission_frames: int = 24,
     final_frames: int = 3,
 ) -> int:
-    load = lambda name: json.loads((fixtures / name).read_text())  # noqa: E731
+    load = lambda name: json.loads((fixtures / name).read_text(encoding="utf-8"))  # noqa: E731
     pbp, score, rail, landing = (load("pbp_final.json"), load("score.json"),
                                  load("rightrail_final.json"), load("landing_final.json"))
     gid = pbp["id"]
@@ -69,19 +69,19 @@ def build(
 
     out.mkdir(parents=True, exist_ok=True)
     (out / "frames").mkdir(exist_ok=True)
-    (out / "meta.json").write_text(json.dumps({"interval": step, "synthetic_from": gid}))
+    (out / "meta.json").write_text(json.dumps({"interval": step, "synthetic_from": gid}), encoding="utf-8")
 
     def write(frame: int, path: str, data) -> None:
         d = out / "frames" / f"{frame:04d}"
         d.mkdir(parents=True, exist_ok=True)
-        (d / encode_path(path)).write_text(json.dumps(data, separators=(",", ":")))
+        (d / encode_path(path)).write_text(json.dumps(data, separators=(",", ":")), encoding="utf-8")
 
     # Static data once, in frame 0.
     for name, path in STATIC.items():
         write(0, path, load(name))
     write(0, "/club-schedule-season/TOR/now", load("schedule_tor.json"))
     for f in fixtures.glob("player_*.json"):
-        write(0, f"/player/{f.stem.split('_', 1)[1]}/landing", json.loads(f.read_text()))
+        write(0, f"/player/{f.stem.split('_', 1)[1]}/landing", json.loads(f.read_text(encoding="utf-8")))
 
     # Slim scoreboard: other games are final and only need teams + score.
     base_score = copy.deepcopy(score)

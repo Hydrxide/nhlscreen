@@ -31,7 +31,7 @@ def fetch(client: httpx.Client, path: str, params: dict | None = None):
 
 def save(frame_dir: Path, path: str, data) -> None:
     frame_dir.mkdir(parents=True, exist_ok=True)
-    (frame_dir / encode_path(path)).write_text(json.dumps(data))
+    (frame_dir / encode_path(path)).write_text(json.dumps(data), encoding="utf-8")
 
 
 def main() -> None:
@@ -45,7 +45,7 @@ def main() -> None:
     team = args.team.upper()
     out = Path(args.out)
     (out / "frames").mkdir(parents=True, exist_ok=True)
-    (out / "meta.json").write_text(json.dumps({"interval": args.interval, "team": team}))
+    (out / "meta.json").write_text(json.dumps({"interval": args.interval, "team": team}), encoding="utf-8")
 
     with httpx.Client(follow_redirects=True, timeout=15, headers={"User-Agent": "nhlscreen-recorder/0.1"}) as client:
         static = out / "frames" / "0000"

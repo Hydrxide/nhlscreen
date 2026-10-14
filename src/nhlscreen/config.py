@@ -104,5 +104,5 @@ class Config(BaseModel):
 def load_config(path: str | Path | None) -> Config:
     if path is None:
         return Config()
-    data = yaml.safe_load(Path(path).read_text()) or {}
+    data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     return Config.model_validate(data)

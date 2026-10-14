@@ -63,7 +63,7 @@ def test_synthetic_clock_flows_evenly(tmp_path):
     pbp_name = "gamecenter__2026020102__play-by-play.json"
     clocks = []
     for f in frames:
-        doc = json.loads((f / pbp_name).read_text())
+        doc = json.loads((f / pbp_name).read_text(encoding="utf-8"))
         if doc["gameState"] == "LIVE" and doc["clock"]["running"]:
             clocks.append((doc["periodDescriptor"]["number"], doc["clock"]["secondsRemaining"]))
     steps = {a[1] - b[1] for a, b in zip(clocks, clocks[1:]) if a[0] == b[0]}

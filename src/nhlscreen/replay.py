@@ -35,7 +35,7 @@ def encode_path(path: str) -> str:
 class ReplayTransport(httpx.AsyncBaseTransport):
     def __init__(self, directory: str | Path, speed: float = 10.0, clock=time.monotonic) -> None:
         self.root = Path(directory)
-        meta = json.loads((self.root / "meta.json").read_text())
+        meta = json.loads((self.root / "meta.json").read_text(encoding="utf-8"))
         self.interval = float(meta.get("interval", 10))
         self.frames = sorted(p for p in (self.root / "frames").iterdir() if p.is_dir())
         if not self.frames:

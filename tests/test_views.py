@@ -101,3 +101,14 @@ def test_player_card_and_final_star_names(fixture):
     assert kinds(screen.spans[0]) == [("value", "FINAL")]
     star = screen.spans[2][-1]
     assert star["kind"] == "player" and star["text"] == "M. Sergachev" and star["color"] == get_team("UTA").display
+
+
+def test_wins_leaders_title_says_goalie(fixture):
+    from nhlscreen.render import render
+    from nhlscreen.render.fonts import REGULAR
+
+    wins = parsers.parse_leaders(fixture("goalie_leaders.json"))["wins"]
+    screen = views.leaders_screen("wins", wins, 5, 8)
+    assert screen.lines[0] == "GOALIE WINS LEADERS"
+    assert REGULAR.measure(screen.lines[0]) <= 126  # fits the panel without the short-label fallback
+    assert any(render(screen.model_dump(mode="json"), NOW).buf)

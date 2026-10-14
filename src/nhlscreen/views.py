@@ -145,7 +145,7 @@ _CATEGORY_TITLES = {
     "goals": "Goals",
     "assists": "Assists",
     "plusMinus": "Plus/Minus",
-    "wins": "Wins",
+    "wins": "Goalie Wins",  # plain "Wins" reads like team wins
     "savePctg": "Save %",
     "goalsAgainstAverage": "Goals Against Avg",
     "shutouts": "Shutouts",

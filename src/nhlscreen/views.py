@@ -191,6 +191,8 @@ def final_label(last_period_type: str | None) -> str:
 
 
 def game_status(game: Game, tz: ZoneInfo) -> str:
+    if game.state == GameState.PREGAME:
+        return "WARMUP"  # the NHL's "PRE" state: teams on the ice, puck not yet dropped
     if game.state.is_upcoming or game.state == GameState.UNKNOWN:
         return local_time(game.start_time_utc, tz)
     if game.state.is_final:
@@ -205,7 +207,9 @@ def game_status(game: Game, tz: ZoneInfo) -> str:
 
 def status_spans(game: Game, tz: ZoneInfo, live_clock: bool = False) -> list[Span]:
     """game_status() as spans. All of it is game state, so all of it is a value:
-    start time, period name ("2nd", "OT", "1st INT"), clock, "FINAL/OT"."""
+    start time, "WARMUP", period name ("2nd", "OT", "1st INT"), clock, "FINAL/OT"."""
+    if game.state == GameState.PREGAME:
+        return [value("WARMUP")]
     if game.state.is_upcoming or game.state == GameState.UNKNOWN:
         return [value(local_time(game.start_time_utc, tz))]
     if game.state.is_final:

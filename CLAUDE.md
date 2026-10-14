@@ -67,7 +67,7 @@ NHL API -> nhl/client.py -> nhl/parsers.py -> nhl/models.py
 
 **Text colors (spans):** every screen's text is `spans`, lines of `{kind, text, color?}`:
 - `label` = **white**: titles, ranks (`1.`), `NEXT:`/`LAST:`, `vs`/`@`, stat names (`SOG`, `GP`), `GOAL!`, `A:`.
-- `value` = **gold** (255,176,0): scores, clock, **period names** (`2ND`, `OT`, `1ST INT`), `FINAL`/`FINAL/OT`, start times, records, stat values, results (`L 4-5`).
+- `value` = **gold** (255,176,0): scores, clock, **period names** (`2ND`, `OT`, `1ST INT`), `FINAL`/`FINAL/OT`, `WARMUP` (NHL state `PRE`), start times, records, stat values, results (`L 4-5`).
 - `team` = team code in its resolved color. `player` = player name in **its team's own color, always** (even on the away side).
 - Any span may carry an explicit `color` that overrides its kind. The backend resolves colors so renderers never apply the rules themselves.
 

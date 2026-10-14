@@ -75,7 +75,7 @@ Each screen has this shape:
 | kind | color | used for |
 |---|---|---|
 | `label` | white | titles, ranks (`1.`), `NEXT:` / `LAST:`, `vs` / `@`, stat names (`SOG`, `GP`), `GOAL!`, `A:` |
-| `value` | gold | the stats: scores, clock, period names (`2ND`, `OT`, `1ST INT`), `FINAL`, start times, records, stat values, results (`L 4-5`) |
+| `value` | gold | the stats: scores, clock, period names (`2ND`, `OT`, `1ST INT`), `FINAL`, `WARMUP`, start times, records, stat values, results (`L 4-5`) |
 | `team` | span's `color` | team codes. On live game info `color` follows the home/away rule; elsewhere it's the team's own color |
 | `player` | span's `color` | player names, always in their team's own color (even on the away side) |
 

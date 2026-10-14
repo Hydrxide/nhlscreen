@@ -65,6 +65,15 @@ def test_scoreboard_status_kinds(fixture):
     assert kinds(screen.spans[1])[-1] == ("value", "9:00 PM")  # start time: a value
 
 
+def test_pregame_scoreboard_row_says_warmup(fixture):
+    # A tracked game's play-by-play reports 0-0 during warmups, before the state goes LIVE.
+    game = next(g for g in parsers.parse_score(fixture("score.json")) if g.id == 2026020102).model_copy(deep=True)
+    game.state, game.away.score, game.home.score = GameState.PREGAME, 0, 0
+    screen = views.scoreboard_screens([game], 4, TZ, 8)[0]
+    assert kinds(screen.spans[0])[-1] == ("value", "WARMUP")
+    assert screen.data["games"][0]["status"] == "WARMUP"
+
+
 def test_live_game_team_spans_use_home_away_colors(fixture):
     game = next(g for g in parsers.parse_score(fixture("score.json")) if g.id == 2026020102)  # TOR @ UTA
     game.state, game.period = GameState.LIVE, 2

@@ -18,9 +18,14 @@
   .meta { color: #777; font-size: 12px; margin-top: 6px; }
   .bar { height: 6px; background: #333; margin-top: 8px; border-radius: 3px; overflow: hidden; }
   .bar span { display: block; height: 100%; background: #6af; width: 0; }
-  pre { background: #1a1a1a; padding: 10px; border-radius: 6px; overflow: auto; max-height: 60vh; font-size: 12px; margin: 0; }
+  pre { background: #111; padding: 10px; border-radius: 6px; overflow: auto; max-height: 60vh; font-size: 12px; margin: 10px 0 0; }
+  .col > .picker:first-child { margin-top: 0; }
+  .debug summary { cursor: pointer; color: #eee; font-size: 15px; font-weight: 600; list-style-position: inside; }
+  .debug summary:focus-visible { outline: 2px solid #6af; outline-offset: 2px; border-radius: 4px; }
+  .hint-inline { color: #777; font-weight: 400; font-size: 12px; }
   ul { list-style: none; padding: 0; margin: 8px 0 0; font: 12px ui-monospace, Menlo, monospace; color: #aaa; }
   li { padding: 2px 0; border-bottom: 1px solid #222; }
+  #events:empty::before { content: "No game events yet"; color: #666; font-family: system-ui, sans-serif; }
   .status { float: right; font-size: 12px; }
 
   /* team picker */
@@ -70,7 +75,7 @@
 <body>
 <h1>nhlscreen · board preview <span class="status" id="status">connecting…</span></h1>
 <div class="wrap">
-  <div>
+  <div class="col">
     <div class="panel"><canvas id="led" width="768" height="384" aria-label="LED matrix preview"></canvas></div>
     <div class="bar"><span id="dwell"></span></div>
     <div class="meta" id="meta"></div>
@@ -80,16 +85,6 @@
       <div class="shownow" id="showNow"></div>
       <div class="msg" id="showMsg" role="status" aria-live="polite"></div>
       <p class="hint">Clears the queue and plays that screen next (every page of it), then the rotation starts over from the top. Goal alert and Final score replay your team's most recent real game.</p>
-    </section>
-
-    <section class="picker" aria-labelledby="following-label">
-      <div class="picker-head">
-        <h2 id="following-label">Following <span id="following">…</span></h2>
-        <button class="reset" id="reset" hidden></button>
-        <label class="multi"><input type="checkbox" id="multi"> Follow several</label>
-      </div>
-      <div id="teamGrid"></div>
-      <div class="msg" id="pickerMsg" role="status" aria-live="polite"></div>
     </section>
 
     <section class="picker" aria-labelledby="players-label">
@@ -115,11 +110,29 @@
       <div class="msg" id="playersMsg" role="status" aria-live="polite"></div>
       <p class="hint">The ID is the number at the end of a player's nhl.com link, e.g. nhl.com/player/gavin-mckenna-<b>8486067</b>. You can paste the whole link. Leave a box empty for just one player.</p>
     </section>
-
-    <h1 style="margin-top:16px">Recent events</h1>
-    <ul id="events"></ul>
   </div>
-  <pre id="json"></pre>
+
+  <div class="col">
+    <section class="picker" aria-labelledby="following-label">
+      <div class="picker-head">
+        <h2 id="following-label">Following <span id="following">…</span></h2>
+        <button class="reset" id="reset" hidden></button>
+        <label class="multi"><input type="checkbox" id="multi"> Follow several</label>
+      </div>
+      <div id="teamGrid"></div>
+      <div class="msg" id="pickerMsg" role="status" aria-live="polite"></div>
+    </section>
+
+    <section class="picker" aria-labelledby="events-label">
+      <h2 id="events-label">Recent events</h2>
+      <ul id="events"></ul>
+    </section>
+
+    <details class="picker debug" id="jsonPanel">
+      <summary>Screen JSON <span class="hint-inline">(debug)</span></summary>
+      <pre id="json"></pre>
+    </details>
+  </div>
 </div>
 <script>
 let screen = null, shownAt = Date.now();
@@ -475,6 +488,14 @@ function connect() {
     }
   };
 }
+
+// Keep the debug JSON panel open/closed across reloads (per browser).
+try {
+  if (localStorage.getItem('nhlscreen.jsonOpen') === '1') $('jsonPanel').open = true;
+  $('jsonPanel').addEventListener('toggle', () => {
+    try { localStorage.setItem('nhlscreen.jsonOpen', $('jsonPanel').open ? '1' : '0'); } catch (e) { /* storage blocked */ }
+  });
+} catch (e) { /* storage blocked: panel just starts collapsed */ }
 
 fetch('/events/recent').then((r) => r.json()).then((evs) => evs.forEach((e) => $('events').prepend(eventLine(e)))).catch(() => {});
 connect();

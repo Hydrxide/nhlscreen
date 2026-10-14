@@ -21,7 +21,7 @@ cp config.example.yaml config.yaml      # set favorite_teams / favorite_players
 .venv/bin/python -m nhlscreen           # serves http://127.0.0.1:8080
 ```
 
-Open **http://127.0.0.1:8080/** for a live preview of the board. It shows the current screen, a dwell bar, the team picker, the raw JSON and recent events.
+Open **http://127.0.0.1:8080/** for a live preview of the board. The left column has the LED preview, **Show now** buttons and favorite players; the right column has the team picker, recent events and a collapsible **Screen JSON** debug panel (collapsed by default; the page remembers if you open it).
 
 ## What the board shows
 

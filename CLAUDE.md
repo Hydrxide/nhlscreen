@@ -4,7 +4,7 @@ A DIY LED scoreboard for live NHL stats. This repo is the **backend + renderer**
 
 ## Status (as of 2026-10-14)
 
-- **Done:** NHL client, parsers, event detection, scheduler, FastAPI API + WebSocket, browser preview with team picker, `displayteam` CLI, replay/demo system, 128×64 LED renderer (fonts + layouts), preview-page player swapping, 99 passing tests.
+- **Done:** NHL client, parsers, event detection, scheduler, FastAPI API + WebSocket, browser preview with team picker, `displayteam` CLI, replay/demo system, 128×64 LED renderer (fonts + layouts), preview-page player swapping and Show now buttons, 107 passing tests.
 - **Not started:** the hardware output process on the Pi (see *Next steps*).
 
 ## Commands
@@ -43,7 +43,7 @@ NHL API -> nhl/client.py -> nhl/parsers.py -> nhl/models.py
 | `nhl/parsers.py` | **The only code that touches raw NHL JSON.** Forgiving `.get` parsing. Fix API changes here. |
 | `services/poller.py` | asyncio loops: scoreboard (20s live / 60s pregame / 15min idle), favorite-game tracking (play-by-play every 5s + right-rail stats every 30s, starts 15 min before puck drop), slow refreshes (standings/leaders/players 1h, schedules 6h). `favorites_changed()` re-targets tracking. |
 | `services/events.py` | Diffs snapshots into goal / goal_overturned / penalty / period_start / period_end / game_final. First sighting of a game is silent (no alert flood on startup or mid-game team switch). |
-| `services/scheduler.py` | What's on screen: alerts > live favorite game > rotation (next game, scoreboard pages, standings, leaders, player cards). Rotation resumes during intermissions. Standings slots are built per followed division/conference (`_standings_slots`). |
+| `services/scheduler.py` | What's on screen: hand-picked "Show now" screens (`force()`) > alerts > live favorite game > rotation (next game, scoreboard pages, standings, leaders, player cards). Rotation resumes during intermissions. Standings slots are built per followed division/conference (`_standings_slots`). |
 | `views.py` | Builds `Screen` models. Each screen has `data` (structured), `spans` (tagged text), `lines` (plain text, derived from spans). |
 | `render/` | Pure-Python renderer, no hardware deps: `fonts.py` (hand-drawn 5×7 + 3×5 pixel fonts), `canvas.py` (RGB buffer, text, LED-dot PNG), `layouts.py` (per-screen layouts). |
 | `runtime.py` | Wires everything; favorite team and player switching (`set_favorite_teams` / `set_favorite_players`, the latter validates IDs via the API: `NHLNotFound` = no such player). Runtime choices persist in `nhlscreen-state.json` next to the config, one key per choice, so resetting teams keeps players and vice versa. |
@@ -84,6 +84,8 @@ NHL API -> nhl/client.py -> nhl/parsers.py -> nhl/models.py
 **Player cards:** small white stat labels over stat values that are **all regular (1×) size**, so goalie decimals (GAA, SV%) match whole numbers. Both skaters and goalies get "LAST GAME" plus one line in regular size (the small font was too hard to read): skaters `1G 0A @ UTA` (numbers gold, `G`/`A` white), goalies `W  30SV  .909  @ COL` (gold save count directly followed by white `SV`, no space) (decision W/L/OTL omitted for no-decision; save % dropped if too wide). Built by `last_game_spans()` in `render/layouts.py`. Avoid `@` in the small font (it reads as "e").
 
 **Scoreboard pages:** one game per row, `NJD  5 @ DET  4  FINAL/OT`: a white `@` (regular size, 3px either side) between away and home; "AT" only if a narrower panel can't fit it. Column positions are the `_SB_*` constants in `render/layouts.py`.
+
+**Show now (preview page):** buttons from `Runtime.SHOW_MENU`; a press clears queued alerts and the rotation position, plays every screen of that entry (configured dwell), outranking even a live game, then the rotation restarts from the top. Goal alert / Final score are rebuilt from the followed teams' most recent real game (play-by-play fetched on demand), never invented.
 
 **Other:** ranks render as `1.`; Standings highlight the followed team's row with a neutral grey bar (a team-colored bar hid that team's code). Defaults: team TOR; players Gavin McKenna `8486067` and Sergei Bobrovsky `8475683`. The preview page lets you swap **two** favorite players (config can hold more; the API allows up to 10).
 

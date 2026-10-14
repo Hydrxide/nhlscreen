@@ -1,6 +1,7 @@
 """Decide what the board shows right now.
 
 Priority:
+  0. screens picked by hand ("Show now" on the preview page), each for its dwell
   1. alerts (favorite-team goal / overturned goal / final), each held for N seconds
   2. a live favorite-team game (rotation resumes during intermissions if configured)
   3. the configured rotation (next game, scoreboard, standings, leaders, players)
@@ -44,6 +45,9 @@ class Scheduler:
         self._entry = 0
         self._slot = -1
         self._builder: Callable[[datetime], Screen | None] | None = None
+        # Screens picked from the preview page; they play before anything else.
+        self._forced: deque[Screen] = deque()
+        self._forced_on = False
 
     def reset(self) -> None:
         """Forget the current screen, queued alerts and rotation (e.g. favorites changed)."""
@@ -51,6 +55,20 @@ class Scheduler:
         self._started_at = None
         self._alerts.clear()
         self._entry, self._slot, self._builder = 0, -1, None
+        self._forced.clear()
+        self._forced_on = False
+
+    def force(self, screens: list[Screen]) -> None:
+        """Clear the queue and play ``screens`` next, each for its dwell; then the
+        rotation starts over from the top. Queued alerts are dropped."""
+        self._alerts.clear()
+        self._forced = deque(screens)
+        self._entry, self._slot, self._builder = 0, -1, None
+        self.current, self._started_at, self._forced_on = None, None, False
+
+    def screens_for(self, entry: RotationEntry, now: datetime) -> list[Screen]:
+        """Every screen a rotation entry would show right now (e.g. all league pages)."""
+        return [s for s in (build(now) for build in self._slots_for(entry, now)) if s is not None]
 
     # ------------------------------------------------------------------ alerts
 
@@ -77,6 +95,16 @@ class Scheduler:
         now = now or self.clock()
         tz = self.config.tz
         cur = self.current
+
+        # 0. Screens picked by hand play first, each for its full dwell.
+        if self._forced_on and cur and not self._expired(cur, now):
+            return cur
+        if self._forced:
+            self._forced_on = True
+            return self._show(self._forced.popleft(), now)
+        if self._forced_on:  # the last picked screen just finished
+            self._forced_on = False
+            cur = self.current = None
 
         # 1. Alerts: let the current alert finish, then show the next queued one.
         if cur and cur.priority >= views.PRIORITY_ALERT and not self._expired(cur, now):

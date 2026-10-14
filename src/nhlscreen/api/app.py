@@ -13,6 +13,8 @@
   PUT  /control/teams      {"teams": ["EDM"]} switch teams; {"teams": null} back to config.yaml
   GET  /control/players    current favorite players (id, name, team)
   PUT  /control/players    {"players": [8486067, 8475683]} switch; {"players": null} back to config.yaml
+  GET  /control/screens    the "Show now" menu (which screens can be shown right now)
+  POST /control/show       {"screen": "standings_league"} clear the queue and show it next
   GET  /render/frame       current screen as a raw RGB frame (width*height*3 bytes)
   GET  /render/frame.png   current screen drawn as LED dots
   WS   /events             pushes {"type": "screen"|"event"|"teams", ...}
@@ -42,6 +44,10 @@ class TeamsRequest(BaseModel):
 
 class PlayersRequest(BaseModel):
     players: list[int] | None  # None = revert to config.yaml
+
+
+class ShowRequest(BaseModel):
+    screen: str  # an id from GET /control/screens
 
 
 def create_app(runtime: Runtime, manage_lifecycle: bool = True) -> FastAPI:
@@ -155,6 +161,19 @@ def create_app(runtime: Runtime, manage_lifecycle: bool = True) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         return runtime.players_state()
+
+    @app.get("/control/screens")
+    def show_menu() -> dict[str, Any]:
+        return {"screens": runtime.show_menu()}
+
+    @app.post("/control/show")
+    async def show_now(req: ShowRequest) -> dict[str, Any]:
+        try:
+            screens = await runtime.show_now(req.screen)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"showing": [s.id for s in screens],
+                "screen": runtime.screen.model_dump(mode="json") if runtime.screen else None}
 
     @app.websocket("/events")
     async def events_ws(ws: WebSocket) -> None:

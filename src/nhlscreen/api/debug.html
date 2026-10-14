@@ -57,6 +57,14 @@
   .save:hover { background: #3a6fc8; }
   .save:disabled { opacity: .6; cursor: progress; }
   .hint { color: #777; font-size: 12px; margin: 8px 0 0; }
+
+  /* show now */
+  .shownow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .shownow button { background: #2a2a2a; color: #eee; border: 1px solid #3a3a3a; border-radius: 6px; padding: 7px 11px;
+                    font: inherit; font-size: 13px; cursor: pointer; }
+  .shownow button:hover:not(:disabled) { background: #353535; border-color: #555; }
+  .shownow button:disabled { opacity: .4; cursor: not-allowed; }
+  .shownow button.alert { border-color: #6a4a00; }
 </style>
 </head>
 <body>
@@ -66,6 +74,13 @@
     <div class="panel"><canvas id="led" width="768" height="384" aria-label="LED matrix preview"></canvas></div>
     <div class="bar"><span id="dwell"></span></div>
     <div class="meta" id="meta"></div>
+
+    <section class="picker" aria-labelledby="shownow-label">
+      <h2 id="shownow-label">Show now</h2>
+      <div class="shownow" id="showNow"></div>
+      <div class="msg" id="showMsg" role="status" aria-live="polite"></div>
+      <p class="hint">Clears the queue and plays that screen next (every page of it), then the rotation starts over from the top. Goal alert and Final score replay your team's most recent real game.</p>
+    </section>
 
     <section class="picker" aria-labelledby="following-label">
       <div class="picker-head">
@@ -279,6 +294,57 @@ async function loadTeams() {
 
 $('reset').addEventListener('click', () => { if (!busy) putTeams(null); });
 
+// ------------------------------------------------------------------ show now
+
+let showBusy = false;
+
+function showMsg(text, isError = false) {
+  $('showMsg').textContent = text;
+  $('showMsg').classList.toggle('err', isError);
+}
+
+function renderShowMenu(items) {
+  $('showNow').replaceChildren(...items.map((item) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = item.label;
+    b.disabled = !item.available;
+    if (item.reason) b.title = item.reason;
+    if (item.id.endsWith('_alert')) b.classList.add('alert');
+    b.addEventListener('click', () => showNow(item));
+    return b;
+  }));
+}
+
+async function loadShowMenu() {
+  try {
+    const r = await fetch('/control/screens');
+    if (r.ok) renderShowMenu((await r.json()).screens);
+  } catch (e) { /* backend restarting */ }
+}
+
+async function showNow(item) {
+  if (showBusy) return;
+  showBusy = true;
+  showMsg(`Loading ${item.label}…`);
+  try {
+    const r = await fetch('/control/show', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ screen: item.id }),
+    });
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.detail || `HTTP ${r.status}`);
+    const n = body.showing.length;
+    showMsg(`Showing ${item.label}${n > 1 ? ` (${n} screens)` : ''}, then back to the rotation`);
+    showScreen(body.screen);
+  } catch (e) {
+    showMsg(`Couldn't show ${item.label}: ${e.message}`, true);
+  } finally {
+    showBusy = false;
+  }
+}
+
 // ------------------------------------------------------------------ favorite players
 
 let playersState = null, playersBusy = false;
@@ -382,7 +448,7 @@ function eventLine(e) {
 
 function connect() {
   const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/events`);
-  ws.onopen = () => { $('status').textContent = 'live'; loadTeams(); loadPlayers(); };
+  ws.onopen = () => { $('status').textContent = 'live'; loadTeams(); loadPlayers(); loadShowMenu(); };
   ws.onclose = () => { $('status').textContent = 'disconnected, retrying…'; setTimeout(connect, 2000); };
   ws.onmessage = (raw) => {
     const m = JSON.parse(raw.data);
@@ -392,11 +458,13 @@ function connect() {
       // Changed elsewhere (another browser).
       playersState = { ...playersState, ...m };
       renderPlayers();
+      loadShowMenu();
     } else if (m.type === 'teams') {
       // Changed elsewhere (another browser or `displayteam`).
       const changed = teamState && m.favorite_teams.join() !== teamState.favorite_teams.join();
       teamState = { ...teamState, ...m };
       renderTeams();
+      loadShowMenu();
       if (changed && !busy) msg(`Now following ${m.favorite_teams.join(' + ')}`);
     } else if (m.type === 'event') {
       // Period starts / finals change LIVE badges; refresh soon after (debounced).
@@ -413,6 +481,7 @@ connect();
 setInterval(render, 250);
 frameLoop();
 setInterval(loadTeams, 60000);  // refresh LIVE / start-time badges
+setInterval(loadShowMenu, 30000);  // which screens have data to show
 </script>
 </body>
 </html>

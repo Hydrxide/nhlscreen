@@ -5,14 +5,16 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import httpx
 
-from .config import Config
+from .config import Config, RotationEntry
 from .nhl import parsers
 from .nhl.client import NHLClient, NHLNotFound, NHLUnavailable
+from .nhl.models import GameEvent
 from .services.poller import Poller
 from .services.scheduler import Scheduler
 from .static.teams import TEAMS
@@ -203,6 +205,101 @@ class Runtime:
                 self.state_path.unlink(missing_ok=True)
         except OSError as exc:
             log.warning("could not save state to %s: %s", self.state_path, exc)
+
+    # ------------------------------------------------------------------ show now
+
+    # Buttons on the preview page: id -> (label, rotation entry used if config has none).
+    SHOW_MENU: dict[str, tuple[str, RotationEntry | None]] = {
+        "next_game": ("Next game", RotationEntry(screen="next_game", dwell=10)),
+        "scoreboard": ("Scoreboard", RotationEntry(screen="scoreboard", dwell=8)),
+        "standings_division": ("Division", RotationEntry(screen="standings", scope="division", dwell=12)),
+        "standings_wildcard": ("Wild card", RotationEntry(screen="standings", scope="wildcard", dwell=12)),
+        "standings_league": ("League standings", RotationEntry(screen="standings", scope="league", dwell=10)),
+        "leaders": ("Leaders", RotationEntry(screen="leaders", dwell=8)),
+        "player_card": ("Player cards", RotationEntry(screen="player_card", dwell=8)),
+        "goal_alert": ("Goal alert", None),
+        "final_alert": ("Final score", None),
+    }
+
+    def _entry_for(self, kind: str) -> RotationEntry:
+        """The configured rotation entry for this screen (its dwell), else the default."""
+        default = self.SHOW_MENU[kind][1]
+        assert default is not None
+        for entry in self.config.display.rotation:
+            if entry.screen == default.screen and (entry.screen != "standings" or entry.scope == default.scope):
+                return entry
+        return default
+
+    def _recent_game_id(self, final_only: bool) -> int | None:
+        """The followed teams' most recent game (today's live/final game, or the last result)."""
+        candidates = []
+        for team in self.config.favorite_teams:
+            for g in self.store.games_for(team):
+                game = self.store.game(g.id) or g
+                if game.state.is_final or (game.state.is_live and not final_only):
+                    candidates.append((game.start_time_utc, game.id))
+            last = self.store.last_game(team)
+            if last:
+                candidates.append((last.start_time_utc, last.id))
+        return max(candidates)[1] if candidates else None
+
+    def show_menu(self) -> list[dict[str, Any]]:
+        now = datetime.now(timezone.utc)
+        menu = []
+        for kind, (label, entry) in self.SHOW_MENU.items():
+            if entry is None:
+                ok = self._recent_game_id(final_only=kind == "final_alert") is not None
+                why = None if ok else "No recent game for your teams yet"
+            else:
+                ok = bool(self.scheduler.screens_for(self._entry_for(kind), now))
+                why = None if ok else "Nothing to show yet (data still loading, or none today)"
+            menu.append({"id": kind, "label": label, "available": ok, "reason": why})
+        return menu
+
+    async def show_now(self, kind: str) -> list[Screen]:
+        """Play ``kind`` next (clearing the queue); the rotation resumes from the top after."""
+        if kind not in self.SHOW_MENU:
+            raise ValueError(f"unknown screen {kind!r}")
+        label = self.SHOW_MENU[kind][0]
+        if kind in ("goal_alert", "final_alert"):
+            screens = [await self._alert_preview(kind)]
+        else:
+            screens = self.scheduler.screens_for(self._entry_for(kind), datetime.now(timezone.utc))
+        if not screens:
+            raise ValueError(f"Nothing to show for {label} yet")
+        self.scheduler.force(screens)
+        self.tick()
+        log.info("show now: %s (%d screen%s)", label, len(screens), "" if len(screens) == 1 else "s")
+        return screens
+
+    async def _alert_preview(self, kind: str) -> Screen:
+        """A goal or final alert rebuilt from the followed teams' most recent real game."""
+        game_id = self._recent_game_id(final_only=kind == "final_alert")
+        if game_id is None:
+            raise ValueError("No recent game for your teams yet")
+        try:
+            detail = parsers.parse_play_by_play(await self.client.play_by_play(game_id))
+        except NHLUnavailable:
+            raise ValueError("Couldn't reach the NHL API; try again") from None
+        game, d, now = detail.game, self.config.display, datetime.now(timezone.utc)
+        base = {"game_id": game.id, "away_abbrev": game.away.abbrev, "home_abbrev": game.home.abbrev,
+                "occurred_at": now}
+        if kind == "goal_alert":
+            goals = [g for g in game.goals if g.team_abbrev in self.config.favorite_teams] or game.goals
+            if not goals:
+                raise ValueError("No goals in your team's most recent game")
+            goal = goals[-1]
+            event = GameEvent(kind="goal", key=f"preview:{game.id}:{goal.event_id}", team_abbrev=goal.team_abbrev,
+                              away_score=goal.away_score, home_score=goal.home_score, period=goal.period,
+                              period_type=goal.period_type, goal=goal, **base)
+            return views.goal_alert_screen(event, d.alert_seconds)
+        try:
+            detail.three_stars = parsers.parse_three_stars(await self.client.landing(game_id))
+        except NHLUnavailable:
+            pass  # the final screen works without stars
+        event = GameEvent(kind="game_final", key=f"preview:final:{game.id}", away_score=game.away.score,
+                          home_score=game.home.score, **base)
+        return views.final_alert_screen(event, game, detail, d.final_alert_seconds)
 
     # ------------------------------------------------------------------ screen
 

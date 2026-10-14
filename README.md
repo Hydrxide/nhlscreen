@@ -80,6 +80,10 @@ server:
 
 There's no login, so anyone on your Wi-Fi can switch teams. Bookmark the page or add it to your phone's home screen.
 
+### Show now (browser)
+
+Under the board preview, **Show now** has a button for each screen: next game, scoreboard, division, wild card, league standings, leaders, player cards, goal alert and final score. A press clears the queue and plays that screen next (every page of it, each for its normal time, even during a live game), then the rotation starts over from the top. **Goal alert** and **Final score** replay your team's most recent real game. Buttons with nothing to show yet are greyed out. Every open page controls the same board, so the latest press wins.
+
 ### Favorite players (browser)
 
 Under the team picker, the **Favorite players** box has two fields. Type a player ID, or paste the player's nhl.com link (`nhl.com/player/gavin-mckenna-8486067`), and press **Save players**. Each ID is checked with the NHL before saving, so a typo gets an error instead of a blank card. Leave a field empty to feature one player; **Reset to config** returns to `favorite_players` from `config.yaml`. The choice is saved with your team choice in `nhlscreen-state.json`.
@@ -128,6 +132,7 @@ The preview page draws these frames as LED dots several times a second, so what 
 | `GET /events/recent`, `/health` | recent events; data freshness and API backoff state |
 | `GET /render/frame`, `/render/frame.png` | the current screen as the LED matrix frame (raw RGB, or a PNG preview) |
 | `GET/PUT /control/teams` | current favorite teams; `{"teams": ["EDM"]}` to switch, `{"teams": null}` to reset (used by `displayteam`) |
+| `GET /control/screens`, `POST /control/show` | the Show now menu; `{"screen": "standings_league"}` plays that screen next |
 | `GET/PUT /control/players` | current favorite players; `{"players": [8486067, 8475683]}` to switch (IDs checked with the NHL), `{"players": null}` to reset |
 
 A renderer only needs to connect to `WS /events` and draw each `screen` message it receives.

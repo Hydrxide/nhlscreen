@@ -133,6 +133,14 @@ def build(
         code = so_far[-1].get("situationCode") if so_far else None
         if state == "LIVE" and clock["running"] and code and code != "1551":
             p["situation"] = {"situationCode": code, "awayTeam": {}, "homeTeam": {}}
+            # Like the real feed: time left on the latest penalty, dropped once it expires.
+            penalties = [x for x in so_far if x["typeDescKey"] == "penalty"]
+            if penalties:
+                pen = penalties[-1]
+                since = (period - pen["periodDescriptor"]["number"]) * REG_PERIOD + elapsed - _seconds(pen["timeInPeriod"])
+                left = pen.get("details", {}).get("duration", 2) * 60 - since
+                if left > 0:
+                    p["situation"].update(timeRemaining=f"{left // 60:02d}:{left % 60:02d}", secondsRemaining=left)
         write(frame, f"/gamecenter/{gid}/play-by-play", p)
         if frame == 0:
             write(frame, f"/gamecenter/{gid}/right-rail", {"teamGameStats": []})

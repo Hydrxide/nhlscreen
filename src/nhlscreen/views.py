@@ -279,7 +279,9 @@ def live_game_screen(
     power_play = empty_net = None
     pp_side = en_side = None
     if sit:
-        pp_side = sit.power_play_team
+        # The feed keeps the PP manpower until the next play after a penalty expires;
+        # only its time left (dropped at expiry) says the power play is still on.
+        pp_side = sit.power_play_team if sit.seconds_remaining else None
         power_play = getattr(game, pp_side).abbrev if pp_side else None
         if not sit.away_goalie_in:
             empty_net, en_side = game.away.abbrev, "away"

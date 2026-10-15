@@ -40,7 +40,7 @@ def build_screens(fixtures: Path) -> dict[str, views.Screen]:
     live.state, live.period, live.period_type = GameState.LIVE, 2, "REG"
     live.away.score, live.home.score, live.away.sog, live.home.sog = 1, 3, 14, 19
     live.clock = Clock(time_remaining="05:16", seconds_remaining=316, running=True)
-    live.situation = Situation(away_skaters=5, home_skaters=4, time_remaining="01:23")
+    live.situation = Situation(away_skaters=5, home_skaters=4, time_remaining="01:23", seconds_remaining=83)
     intermission = live.model_copy(deep=True)
     intermission.clock = Clock(time_remaining="00:00", seconds_remaining=0, running=False, in_intermission=True)
     intermission.situation = None

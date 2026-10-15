@@ -69,14 +69,19 @@ def clock_text(screen: ScreenDict, now: datetime) -> str | None:
 
 
 def situation_text(screen: ScreenDict, now: datetime) -> str | None:
-    """Power-play time left, run off the same (planned) game clock as the main timer."""
+    """Power-play time left, run off the same (planned) game clock as the main timer.
+
+    None once it has run out: the power play is over even if the next reading
+    (which drops it) hasn't arrived yet.
+    """
     data = screen.get("data") or {}
     sit = data.get("situation") or {}
     seconds, clock_at = sit.get("seconds_remaining"), sit.get("clock_at")
     shown = game_seconds(screen, now)
     if seconds is None or clock_at is None or shown is None:
         return sit.get("time_remaining")
-    return _mmss(seconds - max(0.0, clock_at - shown))
+    left = seconds - max(0.0, clock_at - shown)
+    return _mmss(left) if left >= 1 else None
 
 
 def _span_lines(screen: ScreenDict, now: datetime) -> list[list[dict[str, Any]]]:
@@ -205,8 +210,10 @@ def layout_live_game(cv: Canvas, screen: ScreenDict, now: datetime) -> None:
             continue
         team = away if away["abbrev"] == abbrev else home
         spans = [{"kind": "label", "text": word}, {"kind": "team", "text": abbrev, "color": team_color(team)}]
-        pp_time = situation_text(screen, now) if flag == "power_play" else None
-        if pp_time:
+        if flag == "power_play":
+            pp_time = situation_text(screen, now)
+            if not pp_time:
+                continue  # expired between readings
             spans.append({"kind": "value", "text": " " + pp_time})
         _spans_center(cv, 36, spans, SMALL)
         break

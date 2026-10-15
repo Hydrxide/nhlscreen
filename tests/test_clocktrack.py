@@ -169,6 +169,32 @@ def test_power_play_counts_down_with_the_planned_clock(fixture):
     assert situation_text(screen, later + timedelta(seconds=30)) == "01:40"  # clock stopped: PP holds
 
 
+def test_power_play_disappears_when_it_expires(fixture):
+    from nhlscreen.render.layouts import situation_text
+
+    game, _ = _live_game(fixture)
+    store = Store()
+    t = store.clock_track(game.id)
+    t.add(P(1000, 600), now=0)
+    at = datetime.fromtimestamp(1000, timezone.utc)
+    screen = _pp_screen(fixture, store, at, pp_seconds=10)
+    assert screen["data"]["situation"]["power_play"]
+    assert situation_text(screen, at + timedelta(seconds=9)) == "00:01"
+    assert situation_text(screen, at + timedelta(seconds=9.5)) is None  # never shows 00:00
+    assert situation_text(screen, at + timedelta(seconds=12)) is None  # ran out before the next reading
+
+
+def test_stale_power_play_without_time_is_not_shown(fixture):
+    """The feed keeps a 5v4 situationCode after the penalty expires but drops its time."""
+    game, detail = _live_game(fixture)
+    from nhlscreen.nhl.models import Situation
+
+    game = game.model_copy(update={"situation": Situation(away_skaters=4, home_skaters=5, home_tags=["PP"])})
+    screen = views.live_game_screen(game, detail, Config().tz, 15, datetime.now(timezone.utc))
+    assert screen.data["situation"]["power_play"] is None
+    assert "PP" not in "".join(screen.lines)
+
+
 def test_power_play_time_falls_back_to_the_feed_text():
     from nhlscreen.render.layouts import situation_text
 

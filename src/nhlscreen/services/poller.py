@@ -6,16 +6,22 @@
   standings / leaders / schedules / players   slow refreshes (hours)
 
 Anti-spoiler delay: live data (scoreboard and favorite-game snapshots) is fetched
-on time but only applied to the Store, and diffed into events, once it is
-``config.spoiler_delay_seconds`` old. Everything downstream (clock, scores, goal
-and final alerts) therefore runs that far behind, in step with a delayed TV feed.
-Polling decisions (start/stop tracking) still use the fresh data.
+on time but only applied to the Store, and diffed into events, SPOILER_DELAY_SECONDS
+after it was produced (fetch time minus its CDN age). Everything downstream (clock,
+scores, goal and final alerts) runs that far behind, in step with a delayed TV
+feed. Polling decisions (start/stop tracking) still use the fresh data.
+
+The delay is longer than the NHL's ~20s snapshot interval on purpose: each
+favorite-game clock reading goes into a ClockTrack the moment it's fetched, so
+while the board shows one reading it already knows the next and can steer the
+clock there without jumping (see services/clocktrack.py).
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections import deque
 from datetime import datetime, timezone
 from typing import Awaitable, Callable
@@ -25,11 +31,16 @@ from ..nhl import parsers
 from ..nhl.client import SCORE_NOW_PATH, NHLClient, NHLUnavailable, play_by_play_path
 from ..nhl.models import Game, GameDetail, GameEvent
 from ..store import Store
+from .clocktrack import ClockPoint
 from .events import EventDetector
 
 log = logging.getLogger(__name__)
 
 Now = Callable[[], datetime]
+
+# How far behind real time live data is shown. Fixed: it must exceed the NHL's
+# ~20s snapshot interval so the clock can be planned one reading ahead.
+SPOILER_DELAY_SECONDS = 25.0
 
 
 class Poller:
@@ -52,8 +63,10 @@ class Poller:
         self.speed = speed
         self._tasks: list[asyncio.Task] = []
         self._tracked: dict[int, asyncio.Task] = {}
-        # Anti-spoiler queue: (loop time fetched, apply), released oldest first.
-        self._pending: deque[tuple[float, Callable[[], None]]] = deque()
+        # In game seconds; tests set 0 to apply updates immediately.
+        self.spoiler_delay_seconds = SPOILER_DELAY_SECONDS
+        # Anti-spoiler queue: (loop time the data was produced, apply), released oldest first.
+        self._pending: deque[tuple[float, Callable[[float], None]]] = deque()
         self._pending_changed = asyncio.Event()
         self._release_task: asyncio.Task | None = None
 
@@ -109,30 +122,29 @@ class Poller:
     @property
     def spoiler_delay(self) -> float:
         """The delay in real seconds (replays compress it like every other wait)."""
-        if not self.config.spoiler_delay_enabled:
-            return 0.0
-        return max(0.0, self.config.spoiler_delay_seconds) / self.speed
+        return max(0.0, self.spoiler_delay_seconds) / self.speed
 
-    def _deliver(self, apply: Callable[[], None]) -> None:
-        """Apply a live-data update now, or once it is spoiler_delay old."""
+    def _deliver(self, apply: Callable[[float], None], age: float = 0.0) -> None:
+        """Apply a live-data update once spoiler_delay has passed since it was produced
+        (``age`` seconds ago), or now if there's no delay.
+
+        ``apply`` gets the lag: how much later than produced + delay it's running
+        (0 when released on time), for dating clock readings.
+        """
         if self.spoiler_delay <= 0 and not self._pending:
-            apply()
+            apply(age)
             return
-        self._pending.append((asyncio.get_running_loop().time(), apply))
+        self._pending.append((asyncio.get_running_loop().time() - age, apply))
         if self._release_task is None or self._release_task.done():
             self._release_task = asyncio.create_task(self._release_loop(), name="spoiler-delay")
-        self._pending_changed.set()
-
-    def delay_changed(self) -> None:
-        """Re-time queued updates after the delay was changed or toggled at runtime."""
         self._pending_changed.set()
 
     def _release_due(self) -> None:
         now = asyncio.get_running_loop().time()
         while self._pending and self._pending[0][0] + self.spoiler_delay <= now:
-            _, apply = self._pending.popleft()
+            produced, apply = self._pending.popleft()
             try:
-                apply()
+                apply(max(0.0, now - produced - self.spoiler_delay))
             except Exception:
                 log.exception("Applying delayed update failed")
 
@@ -154,7 +166,7 @@ class Poller:
         games = parsers.parse_score(await self.client.score_now())
         age = self.client.age(SCORE_NOW_PATH)
         self._update_tracking(games)
-        self._deliver(lambda: self._apply_scoreboard(games, age))
+        self._deliver(lambda lag: self._apply_scoreboard(games, lag), age)
 
     def _apply_scoreboard(self, games: list[Game], age: float) -> None:
         previous = dict(self.store.games)
@@ -228,8 +240,19 @@ class Poller:
                 detail.three_stars = parsers.parse_three_stars(await self.client.landing(game_id))
             except NHLUnavailable as exc:
                 log.warning("three stars unavailable for %s: %s", game_id, exc)
-        self._deliver(lambda: self._apply_detail(detail, age))
+        self._track_clock(detail.game, age)
+        self._deliver(lambda lag: self._apply_detail(detail, lag), age)
         return detail.game
+
+    def _track_clock(self, game: Game, age: float) -> None:
+        """Record the reading now, dated to when the board will show it (lookahead)."""
+        c = game.clock
+        if c is None or not game.state.is_live:
+            return
+        now = time.time()
+        point = ClockPoint(at=now - age + self.spoiler_delay, seconds=c.seconds_remaining, running=c.running,
+                           period=game.period or 0, intermission=c.in_intermission)
+        self.store.clock_track(game.id, self.speed).add(point, now)
 
     def _apply_detail(self, detail: GameDetail, age: float) -> None:
         events = self.detector.from_detail(detail, self.now())

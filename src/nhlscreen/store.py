@@ -8,6 +8,7 @@ from collections import deque
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from .services.clocktrack import ClockSegment, ClockTrack
 from .nhl.models import (
     Game,
     GameDetail,
@@ -33,6 +34,8 @@ class Store:
         self.updated_at: dict[str, datetime] = {}
         # game id -> (clock reading, when that reading was first seen)
         self._clock_seen: dict[int, tuple[tuple, datetime]] = {}
+        # Tracked games' clock readings, including ones not shown yet (the plan's lookahead).
+        self.clock_tracks: dict[int, ClockTrack] = {}
         self._subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
 
     # ------------------------------------------------------------------ updates
@@ -97,6 +100,17 @@ class Store:
         """
         seen = self._clock_seen.get(game_id)
         return seen[1] if seen else None
+
+    def clock_track(self, game_id: int, nominal_rate: float = 1.0) -> ClockTrack:
+        track = self.clock_tracks.get(game_id)
+        if track is None:
+            track = self.clock_tracks[game_id] = ClockTrack(nominal_rate)
+        return track
+
+    def clock_segment(self, game_id: int, now: datetime) -> ClockSegment | None:
+        """The planned clock for a tracked game at ``now`` (None: count down from as_of)."""
+        track = self.clock_tracks.get(game_id)
+        return track.segment(now.timestamp()) if track else None
 
     # ------------------------------------------------------------------ queries
 

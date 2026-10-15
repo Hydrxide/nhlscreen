@@ -150,7 +150,8 @@ class StubClient:
 
 
 async def test_poller_retargets_live_tracking(fixture):
-    rt = Runtime(Config(favorite_teams=["EDM"], spoiler_delay_seconds=0))
+    rt = Runtime(Config(favorite_teams=["EDM"]))
+    rt.poller.spoiler_delay_seconds = 0
     rt.poller.client = StubClient(fixture)
     try:
         await rt.poller.refresh_scoreboard()

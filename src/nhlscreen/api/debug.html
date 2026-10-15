@@ -63,21 +63,6 @@
   .save:disabled { opacity: .6; cursor: progress; }
   .hint { color: #777; font-size: 12px; margin: 8px 0 0; }
 
-  /* anti-spoiler delay */
-  .delay-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
-  .delay-form input { width: 6em; background: #111; color: #eee; border: 1px solid #333; border-radius: 6px; padding: 7px 10px;
-                      font: 15px ui-monospace, Menlo, monospace; }
-  .delay-form input:focus { outline: 2px solid #6af; outline-offset: 0; border-color: transparent; }
-  .delay-form .unit { color: #aaa; }
-  .delay-form .reset { margin-left: auto; }
-  .toggle { margin-left: auto; min-width: 7.5em; background: #333; color: #ddd; border: 0; border-radius: 6px;
-            padding: 6px 12px; font: inherit; font-weight: 600; cursor: pointer; }
-  .toggle:hover { background: #444; }
-  .toggle[aria-pressed="true"] { background: #2f7d3a; color: #fff; }
-  .toggle[aria-pressed="true"]:hover { background: #389146; }
-  .toggle:focus-visible { outline: 2px solid #6af; outline-offset: 2px; }
-  .toggle:disabled { opacity: .6; cursor: progress; }
-
   /* show now */
   .shownow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
   .shownow button { background: #2a2a2a; color: #eee; border: 1px solid #3a3a3a; border-radius: 6px; padding: 7px 11px;
@@ -100,22 +85,6 @@
       <div class="shownow" id="showNow"></div>
       <div class="msg" id="showMsg" role="status" aria-live="polite"></div>
       <p class="hint">Clears the queue and plays that screen next (every page of it), then the rotation starts over from the top. Goal alert and Final score replay your team's most recent real game.</p>
-    </section>
-
-    <section class="picker" aria-labelledby="delay-label">
-      <div class="picker-head">
-        <h2 id="delay-label">Anti-spoiler delay <span class="hint-inline" id="delayNow"></span></h2>
-        <button class="toggle" id="toggleDelay" type="button" aria-pressed="false">Delay off</button>
-      </div>
-      <form class="delay-form" id="delayForm" novalidate>
-        <label for="delayInput" class="unit">Hold live data back</label>
-        <input id="delayInput" type="number" min="0" max="300" step="1" inputmode="numeric">
-        <span class="unit">seconds</span>
-        <button class="save" id="saveDelay" type="submit">Set delay</button>
-        <button class="reset" id="resetDelay" type="button" hidden>Reset to config</button>
-      </form>
-      <div class="msg" id="delayMsg" role="status" aria-live="polite"></div>
-      <p class="hint">Delays the live clock, scores, goal alerts and final scores so the board doesn't get ahead of your TV. Raise it if the board shows goals before the broadcast. The on/off button keeps the number for next time.</p>
     </section>
 
     <section class="picker" aria-labelledby="players-label">
@@ -477,73 +446,6 @@ async function loadPlayers() {
     if (r.ok) { playersState = await r.json(); renderPlayers(); }
   } catch (e) { /* backend restarting */ }
 }
-// ------------------------------------------------------------------ anti-spoiler delay
-
-let delayState = null;
-
-function delayMsg(text, isError = false) {
-  $('delayMsg').textContent = text;
-  $('delayMsg').classList.toggle('err', isError);
-}
-
-function renderDelay() {
-  if (!delayState) return;
-  const { spoiler_delay_seconds: d, enabled } = delayState;
-  const on = enabled && d > 0;
-  $('delayNow').textContent = on ? `· ${d}s behind live` : '· off';
-  $('toggleDelay').setAttribute('aria-pressed', String(enabled));
-  $('toggleDelay').textContent = enabled ? 'Delay on' : 'Delay off';
-  if (document.activeElement !== $('delayInput')) $('delayInput').value = d;
-  $('delayInput').max = delayState.max_delay_seconds;
-  $('resetDelay').hidden = d === delayState.configured_delay_seconds && enabled === delayState.configured_enabled;
-}
-
-async function putDelay(change) {
-  $('saveDelay').disabled = $('toggleDelay').disabled = true;
-  try {
-    const r = await fetch('/control/delay', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(change),
-    });
-    const body = await r.json();
-    if (!r.ok) throw new Error(typeof body.detail === 'string' ? body.detail : `HTTP ${r.status}`);
-    delayState = body;
-    $('delayInput').blur();
-    renderDelay();
-    const d = body.spoiler_delay_seconds;
-    delayMsg(body.enabled && d > 0 ? `Live game data now runs ${d} seconds behind`
-      : 'Delay off: live game data shows as soon as it arrives');
-  } catch (e) {
-    delayMsg(`Couldn't change the delay: ${e.message}`, true);
-  } finally {
-    $('saveDelay').disabled = $('toggleDelay').disabled = false;
-  }
-}
-
-$('delayForm').addEventListener('submit', (ev) => {
-  ev.preventDefault();
-  const v = Number($('delayInput').value);
-  const max = delayState ? delayState.max_delay_seconds : 300;
-  if ($('delayInput').value.trim() === '' || !Number.isFinite(v) || v < 0 || v > max) {
-    delayMsg(`Enter a number of seconds from 0 to ${max}.`, true);
-    $('delayInput').focus();
-    return;
-  }
-  putDelay({ seconds: v });
-});
-$('resetDelay').addEventListener('click', () => putDelay({ seconds: null }));
-$('toggleDelay').addEventListener('click', () => {
-  if (delayState) putDelay({ enabled: !delayState.enabled });
-});
-
-async function loadDelay() {
-  try {
-    const r = await fetch('/control/delay');
-    if (r.ok) { delayState = await r.json(); renderDelay(); }
-  } catch (e) { /* backend restarting */ }
-}
-
 $('multi').addEventListener('change', () => {
   msg($('multi').checked ? 'Tap teams to add or remove them.' : '');
 });
@@ -559,7 +461,7 @@ function eventLine(e) {
 
 function connect() {
   const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/events`);
-  ws.onopen = () => { $('status').textContent = 'live'; loadTeams(); loadPlayers(); loadDelay(); loadShowMenu(); };
+  ws.onopen = () => { $('status').textContent = 'live'; loadTeams(); loadPlayers(); loadShowMenu(); };
   ws.onclose = () => { $('status').textContent = 'disconnected, retrying…'; setTimeout(connect, 2000); };
   ws.onmessage = (raw) => {
     const m = JSON.parse(raw.data);
@@ -570,10 +472,6 @@ function connect() {
       playersState = { ...playersState, ...m };
       renderPlayers();
       loadShowMenu();
-    } else if (m.type === 'delay') {
-      // Changed elsewhere (another browser).
-      delayState = { ...delayState, ...m };
-      renderDelay();
     } else if (m.type === 'teams') {
       // Changed elsewhere (another browser or `displayteam`).
       const changed = teamState && m.favorite_teams.join() !== teamState.favorite_teams.join();

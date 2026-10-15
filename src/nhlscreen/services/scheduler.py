@@ -121,7 +121,8 @@ class Scheduler:
         if show_live:
             game = show_live[int(now.timestamp() // LIVE_ALTERNATE_SECONDS) % len(show_live)]
             screen = views.live_game_screen(game, self.store.details.get(game.id), tz, LIVE_ALTERNATE_SECONDS, now,
-                                            as_of=self.store.clock_as_of(game.id), clock_rate=self.clock_rate)
+                                            as_of=self.store.clock_as_of(game.id), clock_rate=self.clock_rate,
+                                            segment=self.store.clock_segment(game.id, now))
             return self._show(screen, now, keep_start=cur is not None and cur.id == screen.id)
 
         # 3. Rotation: refresh the current rotation screen's data until its dwell expires.

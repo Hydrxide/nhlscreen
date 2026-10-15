@@ -34,6 +34,7 @@ from .nhl.models import (
     ScheduledGame,
     TeamStanding,
 )
+from .services.clocktrack import ClockSegment
 from .static.teams import get_team
 
 ScreenType = Literal[
@@ -75,7 +76,8 @@ class Screen(BaseModel):
         """Identity + content, ignoring timestamps; used to detect real changes."""
         data = {k: v for k, v in self.data.items() if k != "clock"}
         clock = self.data.get("clock") or {}
-        return (self.id, repr(data), clock.get("display"), clock.get("running"), clock.get("in_intermission"))
+        return (self.id, repr(data), clock.get("display"), clock.get("running"), clock.get("in_intermission"),
+                clock.get("rate"))
 
 
 # --------------------------------------------------------------------------- spans
@@ -260,8 +262,17 @@ def live_game_screen(
     now: datetime,
     as_of: datetime | None = None,
     clock_rate: float = 1.0,
+    segment: ClockSegment | None = None,
 ) -> Screen:
+    """``segment``: the planned clock (services/clocktrack.py) for a tracked game. When
+    given it replaces the latest reading's countdown, so the clock never jumps."""
     clock = game.clock
+    if segment is not None and clock is not None and not clock.in_intermission:
+        start = int(segment.seconds)
+        clock = clock.model_copy(update={"seconds_remaining": start, "time_remaining": f"{start // 60:02d}:{start % 60:02d}",
+                                         "running": segment.rate > 0})
+        game = game.model_copy(update={"clock": clock})
+        as_of, clock_rate = datetime.fromtimestamp(segment.start, timezone.utc), segment.rate
     sit = game.situation
     power_play = empty_net = None
     pp_side = en_side = None
@@ -294,7 +305,8 @@ def live_game_screen(
             "in_intermission": clock.in_intermission if clock else False,
             # Renderers count down locally while running is true:
             #   shown = seconds_remaining - (now - as_of) * rate
-            # as_of is when this clock reading first arrived; rate is 1 except in replays.
+            # as_of is when this clock reading was true; rate is 1 except in replays, or
+            # the planned pace while the clock is steered to the next reading.
             "as_of": (as_of or now).isoformat(),
             "rate": clock_rate,
         },

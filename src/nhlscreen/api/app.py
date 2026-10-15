@@ -13,14 +13,11 @@
   PUT  /control/teams      {"teams": ["EDM"]} switch teams; {"teams": null} back to config.yaml
   GET  /control/players    current favorite players (id, name, team)
   PUT  /control/players    {"players": [8486067, 8475683]} switch; {"players": null} back to config.yaml
-  GET  /control/delay      anti-spoiler delay (seconds live game data is held back)
-  PUT  /control/delay      {"seconds": 30} change it; {"enabled": false} turn it off (keeps the
-                           seconds); {"seconds": null} back to config.yaml
   GET  /control/screens    the "Show now" menu (which screens can be shown right now)
   POST /control/show       {"screen": "standings_league"} clear the queue and show it next
   GET  /render/frame       current screen as a raw RGB frame (width*height*3 bytes)
   GET  /render/frame.png   current screen drawn as LED dots
-  WS   /events             pushes {"type": "screen"|"event"|"teams"|"players"|"delay", ...}
+  WS   /events             pushes {"type": "screen"|"event"|"teams"|"players", ...}
   GET  /debug              browser preview of the board + team picker (also at /)
 """
 
@@ -47,11 +44,6 @@ class TeamsRequest(BaseModel):
 
 class PlayersRequest(BaseModel):
     players: list[int] | None  # None = revert to config.yaml
-
-
-class DelayRequest(BaseModel):
-    seconds: float | None = None  # sent as null = revert to config.yaml
-    enabled: bool | None = None
 
 
 class ShowRequest(BaseModel):
@@ -169,23 +161,6 @@ def create_app(runtime: Runtime, manage_lifecycle: bool = True) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         return runtime.players_state()
-
-    @app.get("/control/delay")
-    def get_delay() -> dict[str, Any]:
-        return runtime.delay_state()
-
-    @app.put("/control/delay")
-    def set_delay(req: DelayRequest) -> dict[str, Any]:
-        if not req.model_fields_set:
-            raise HTTPException(400, 'send "seconds" and/or "enabled"')
-        try:
-            if "seconds" in req.model_fields_set:
-                runtime.set_spoiler_delay(req.seconds)
-        except ValueError as exc:
-            raise HTTPException(400, str(exc)) from exc
-        if req.enabled is not None:
-            runtime.set_spoiler_delay_enabled(req.enabled)
-        return runtime.delay_state()
 
     @app.get("/control/screens")
     def show_menu() -> dict[str, Any]:

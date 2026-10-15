@@ -4,7 +4,7 @@ A DIY LED scoreboard for live NHL stats. This repo is the **backend + renderer**
 
 ## Status (as of 2026-10-14)
 
-- **Done:** NHL client, parsers, event detection, scheduler, FastAPI API + WebSocket, browser preview with team picker, `displayteam` CLI, replay/demo system, 128×64 LED renderer (fonts + layouts), preview-page player swapping and Show now buttons, anti-spoiler delay, 113 passing tests.
+- **Done:** NHL client, parsers, event detection, scheduler, FastAPI API + WebSocket, browser preview with team picker, `displayteam` CLI, replay/demo system, 128×64 LED renderer (fonts + layouts), preview-page player swapping and Show now buttons, fixed 25s anti-spoiler delay with a planned (jump-free) live clock, 128 passing tests.
 - **Not started:** the hardware output process on the Pi (see *Next steps*).
 
 ## Commands
@@ -61,11 +61,13 @@ NHL API -> nhl/client.py -> nhl/parsers.py -> nhl/models.py
 
 ## Anti-spoiler delay
 
-`spoiler_delay_seconds` (default 15, 0–300) plus `spoiler_delay_enabled` (on/off button; off keeps the seconds), both settable on the preview page / `PUT /control/delay`, persisted in the state file). The poller fetches on time but queues each scoreboard / play-by-play snapshot (`Poller._deliver`) and applies it to the Store and the event detector only once it's that old, so clock, scores, alerts and finals all lag together and `clock_as_of` / `occurred_at` are stamped at release. Tracking decisions use the fresh data. Scaled by replay speed. Schedules after a final wait out the delay; Show now's goal/final alerts use the stored (delayed) detail for tracked games. New live-data paths must go through `_deliver` or they'll spoil.
+Fixed at `SPOILER_DELAY_SECONDS = 25` in `services/poller.py`, always on. The user removed the adjustable/toggle version (2026-10-14) in favor of this, because the delay must exceed the ~20s snapshot interval for the clock lookahead (see *Live clock*); don't make it configurable below ~22s. The poller fetches on time but queues each scoreboard / play-by-play snapshot (`Poller._deliver`) and applies it to the Store and the event detector at produced time (fetch minus CDN age) + delay, so clock, scores, alerts and finals all lag together. Tests set `poller.spoiler_delay_seconds = 0` for immediate updates. Tracking decisions use the fresh data. Scaled by replay speed. Schedules after a final wait out the delay; Show now's goal/final alerts use the stored (delayed) detail for tracked games. New live-data paths must go through `_deliver` or they'll spoil.
 
 ## Live clock
 
-`data.clock` = `seconds_remaining`, `running`, `as_of`, `rate`. Renderers count down: `seconds_remaining - (now - as_of) * rate`. **`as_of` is when that clock reading was true**: first arrival minus the snapshot's CDN age (`Store.clock_as_of`), not the fetch time. Re-fetching an unchanged reading must not move it (the countdown would stall then jump), and ignoring the age put the board up to 19s ahead, varying per snapshot. Clock stoppages still show up to one snapshot late (the board counts on, then snaps back). The user chose this smooth countdown (2026-10-14) over showing only the NHL's value or hiding the running clock; keep it. `rate` is 1 live and equals the replay speed in demos.
+`data.clock` = `seconds_remaining`, `running`, `as_of`, `rate`. Renderers count down: `seconds_remaining - (now - as_of) * rate`.
+
+The feed is coarse: a new reading every ~20s, and a CDN copy labelled age 0 can hold content the origin changed up to 19s earlier (measured live 2026-10-14; no timestamp exists in headers or JSON). Counting from each reading made the board jump both ways. Fix: each tracked game's readings go into a `ClockTrack` (`services/clocktrack.py`) **when fetched**, dated to display time (produced + delay). Since the delay exceeds the snapshot interval, the next reading is usually known while the current one is shown, and the track plans a jump-free path between them: steady pace to the next running reading, run-then-hold into a stop, hold-then-start out of one. `Store.clock_segment()` gives the piece in effect; `views.live_game_screen(segment=...)` puts it in `data.clock` (`rate` 0 = held, `running` false). Observed live: no jumps, pace 0.75–1.5×. Without a track (untracked games, before the first reading) the old path applies: `as_of` = `Store.clock_as_of` = first arrival minus lag. Re-fetching an unchanged reading must not move anything. `rate` is the replay speed in demos (the track's nominal rate).
 
 ## Display decisions (made by the user; keep them unless asked)
 

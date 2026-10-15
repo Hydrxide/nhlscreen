@@ -42,14 +42,41 @@ def own_color(team: dict[str, Any] | None) -> tuple[int, int, int]:
     return _rgb(((team or {}).get("colors") or {}).get("display"))
 
 
+def _mmss(seconds: float) -> str:
+    left = max(0, int(seconds))
+    return f"{left // 60:02d}:{left % 60:02d}"
+
+
+def game_seconds(screen: ScreenDict, now: datetime) -> float | None:
+    """The game clock shown right now, in seconds (counted down locally while running)."""
+    clock = (screen.get("data") or {}).get("clock") or {}
+    seconds = clock.get("seconds_remaining")
+    if seconds is None:
+        return None
+    if not clock.get("running") or not clock.get("as_of"):
+        return float(seconds)
+    elapsed = (now - datetime.fromisoformat(clock["as_of"])).total_seconds() * clock.get("rate", 1)
+    return max(0.0, seconds - elapsed)
+
+
 def clock_text(screen: ScreenDict, now: datetime) -> str | None:
     """The live clock counted down locally (see views.live_game_screen)."""
     clock = (screen.get("data") or {}).get("clock") or {}
-    if not clock.get("running") or clock.get("seconds_remaining") is None or not clock.get("as_of"):
+    if not clock.get("running"):
         return None
-    elapsed = (now - datetime.fromisoformat(clock["as_of"])).total_seconds() * clock.get("rate", 1)
-    left = max(0, int(clock["seconds_remaining"] - elapsed))
-    return f"{left // 60:02d}:{left % 60:02d}"
+    shown = game_seconds(screen, now)
+    return _mmss(shown) if shown is not None else None
+
+
+def situation_text(screen: ScreenDict, now: datetime) -> str | None:
+    """Power-play time left, run off the same (planned) game clock as the main timer."""
+    data = screen.get("data") or {}
+    sit = data.get("situation") or {}
+    seconds, clock_at = sit.get("seconds_remaining"), sit.get("clock_at")
+    shown = game_seconds(screen, now)
+    if seconds is None or clock_at is None or shown is None:
+        return sit.get("time_remaining")
+    return _mmss(seconds - max(0.0, clock_at - shown))
 
 
 def _span_lines(screen: ScreenDict, now: datetime) -> list[list[dict[str, Any]]]:
@@ -178,8 +205,9 @@ def layout_live_game(cv: Canvas, screen: ScreenDict, now: datetime) -> None:
             continue
         team = away if away["abbrev"] == abbrev else home
         spans = [{"kind": "label", "text": word}, {"kind": "team", "text": abbrev, "color": team_color(team)}]
-        if flag == "power_play" and sit.get("time_remaining"):
-            spans.append({"kind": "value", "text": " " + sit["time_remaining"]})
+        pp_time = situation_text(screen, now) if flag == "power_play" else None
+        if pp_time:
+            spans.append({"kind": "value", "text": " " + pp_time})
         _spans_center(cv, 36, spans, SMALL)
         break
 

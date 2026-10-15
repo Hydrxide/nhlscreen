@@ -92,6 +92,14 @@ def _situation(raw: JSON | None) -> Situation | None:
     sit.away_tags = list((raw.get("awayTeam") or {}).get("situationDescriptions") or [])
     sit.home_tags = list((raw.get("homeTeam") or {}).get("situationDescriptions") or [])
     sit.time_remaining = raw.get("timeRemaining")
+    seconds = raw.get("secondsRemaining")
+    if seconds is None and sit.time_remaining:
+        try:
+            minutes, secs = sit.time_remaining.split(":")
+            seconds = int(minutes) * 60 + int(secs)
+        except ValueError:
+            seconds = None
+    sit.seconds_remaining = int(seconds) if seconds is not None else None
     return sit
 
 

@@ -63,7 +63,9 @@ class Situation(BaseModel):
     # e.g. "PP" or "EN" per team, as reported by the API when available
     away_tags: list[str] = Field(default_factory=list)
     home_tags: list[str] = Field(default_factory=list)
+    # Until the current situation (e.g. a power play) ends; counts down with the game clock.
     time_remaining: str | None = None
+    seconds_remaining: int | None = None
 
     # An extra attacker (goalie pulled) doesn't change the official strength:
     # 6 skaters with an empty net is still "5" for power-play purposes.

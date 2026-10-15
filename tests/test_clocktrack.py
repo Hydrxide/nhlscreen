@@ -1,6 +1,6 @@
 """Planning the live clock between readings so it never jumps."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from nhlscreen.config import Config
 from nhlscreen.nhl.models import Clock, GameState
@@ -129,3 +129,55 @@ def test_live_screen_shows_the_planned_clock(fixture):
     data = screen.model_dump(mode="json")
     assert data["data"]["clock"]["running"] is False and data["data"]["clock"]["display"] == "09:48"
     assert "09:48" in "".join(screen.lines)
+
+
+def _pp_screen(fixture, store, at, pp_seconds=120, reading=600):
+    from nhlscreen.nhl.models import Situation
+
+    game, detail = _live_game(fixture)
+    game = game.model_copy(update={
+        "clock": Clock(time_remaining="10:00", seconds_remaining=reading, running=True),
+        "situation": Situation(away_skaters=5, home_skaters=4, away_tags=["PP"], time_remaining="02:00",
+                               seconds_remaining=pp_seconds)})
+    return views.live_game_screen(game, detail, Config().tz, 15, at,
+                                  segment=store.clock_segment(game.id, at)).model_dump(mode="json")
+
+
+def test_power_play_counts_down_with_the_planned_clock(fixture):
+    from nhlscreen.render.layouts import situation_text
+
+    game, _ = _live_game(fixture)
+    store = Store()
+    t = store.clock_track(game.id)
+    t.add(P(1000, 600), now=0)
+    t.add(P(1020, 585), now=0)  # missed whistle: the plan runs at 0.75x
+    t.add(P(1040, 580, running=False), now=0)
+    at = datetime.fromtimestamp(1000, timezone.utc)
+    screen = _pp_screen(fixture, store, at)
+    assert situation_text(screen, at) == "02:00"
+    for ts, game_clock, pp in ((1010, "09:52", "01:52"), (1019.9, "09:45", "01:45")):
+        now = datetime.fromtimestamp(ts, timezone.utc)
+        assert clock_text(screen, now) == game_clock and situation_text(screen, now) == pp  # same pace
+
+    # next reading released at 1020 (PP 1:45 at 9:45): no jump, then held with the clock at 9:40
+    at = datetime.fromtimestamp(1020, timezone.utc)
+    screen = _pp_screen(fixture, store, at, pp_seconds=105, reading=585)
+    assert situation_text(screen, at) == "01:45"
+    later = datetime.fromtimestamp(1035, timezone.utc)
+    screen = _pp_screen(fixture, store, later, pp_seconds=105, reading=585)
+    assert situation_text(screen, later) == "01:40"
+    assert situation_text(screen, later + timedelta(seconds=30)) == "01:40"  # clock stopped: PP holds
+
+
+def test_power_play_time_falls_back_to_the_feed_text():
+    from nhlscreen.render.layouts import situation_text
+
+    screen = {"data": {"situation": {"time_remaining": "01:23"}, "clock": {}}}
+    assert situation_text(screen, datetime.now(timezone.utc)) == "01:23"
+
+
+def test_parser_reads_power_play_seconds():
+    from nhlscreen.nhl.parsers import _situation
+
+    assert _situation({"situationCode": "1451", "timeRemaining": "00:47", "secondsRemaining": 47}).seconds_remaining == 47
+    assert _situation({"situationCode": "1451", "timeRemaining": "01:23"}).seconds_remaining == 83

@@ -267,6 +267,8 @@ def live_game_screen(
     """``segment``: the planned clock (services/clocktrack.py) for a tracked game. When
     given it replaces the latest reading's countdown, so the clock never jumps."""
     clock = game.clock
+    # The released reading's game clock: the power-play time was read at this clock.
+    reading_seconds = clock.seconds_remaining if clock else None
     if segment is not None and clock is not None and not clock.in_intermission:
         start = int(segment.seconds)
         clock = clock.model_copy(update={"seconds_remaining": start, "time_remaining": f"{start // 60:02d}:{start % 60:02d}",
@@ -315,6 +317,10 @@ def live_game_screen(
             "power_play": power_play,
             "empty_net": empty_net,
             "time_remaining": sit.time_remaining if sit else None,
+            # Renderers count the power play down with the game clock:
+            #   shown = seconds_remaining - (clock_at - game clock shown now)
+            "seconds_remaining": sit.seconds_remaining if sit else None,
+            "clock_at": reading_seconds,
         },
         "last_goal": last_goal.model_dump() if last_goal else None,
         "stats": stats,

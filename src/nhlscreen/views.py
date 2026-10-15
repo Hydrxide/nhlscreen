@@ -6,6 +6,8 @@ short lines of text, each split into tagged pieces so a renderer can style them:
 
     label   white   titles, ranks ("1."), "NEXT:", "vs"/"@", stat names
     value   gold    the stats: scores, clocks, period names, times, records
+                    (W-L-OTL records: wins light green, losses light red, OT
+                    losses gold, white dashes; see ``record_spans``)
     team    color   a team code; ``color`` follows the home/away rule on live
                     game info and is the team's own color elsewhere
     player  color   a player name, in the player's team's own color
@@ -113,6 +115,20 @@ def player_span(name: str, abbrev: str | None) -> Span:
 def colored(text: str, color: tuple[int, int, int], kind: str = "label") -> Span:
     """A span with an explicit color, overriding its kind's default."""
     return {"kind": kind, "text": text, "color": color}
+
+
+WIN_COLOR = (120, 255, 120)  # light green
+LOSS_COLOR = (255, 110, 110)  # light red
+
+
+def record_spans(record: str) -> list[Span]:
+    """``6-1-1``: wins light green, losses light red, OT losses gold, white dashes."""
+    parts = record.split("-")
+    if len(parts) != 3:
+        return [value(record)]
+    wins, losses, ot_losses = parts
+    return [colored(wins, WIN_COLOR, "value"), label("-"), colored(losses, LOSS_COLOR, "value"), label("-"),
+            value(ot_losses)]
 
 
 def line(*parts: Span | str) -> list[Span]:
@@ -459,6 +475,7 @@ def _standing_row(s: TeamStanding, rank: int) -> dict[str, Any]:
         "team": team_view(s.abbrev),
         "gp": s.games_played,
         "record": s.record,
+        "record_spans": record_spans(s.record),
         "points": s.points,
         "streak": s.streak,
         "l10": s.l10,
@@ -467,7 +484,7 @@ def _standing_row(s: TeamStanding, rank: int) -> dict[str, Any]:
 
 def _standing_spans(r: dict[str, Any]) -> list[Span]:
     return line(f"{r['rank']:>2}. ", team_span(r["team"]["abbrev"]), " ", value(f"{r['points']:>3}"), "  ",
-                value(r["record"]))
+                *r["record_spans"])
 
 
 def standings_screen(

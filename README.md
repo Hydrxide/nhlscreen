@@ -52,7 +52,7 @@ Screens are chosen in priority order:
 3. **Rotation**: next game and last result, the league scoreboard (paged), standings, stat leaders, and favorite player cards. Standings come in three kinds, each a separate rotation entry in `config.yaml`:
    - **Division:** only divisions that contain a followed team.
    - **Wild card:** the NHL playoff format for each conference you follow: every division's top 3, then the wild card spots, a cut line and the chasers.
-   - **League:** all 32 teams across eight pages of 4, 5 seconds each.
+   - **League:** all 32 teams across eight pages of 4, 5 seconds each, in larger text: points, record and streak (no games played column).
 
    Followed teams are highlighted with a grey bar in every table.
 
@@ -79,7 +79,7 @@ Each screen has this shape:
 | `team` | span's `color` | team codes. On live game info `color` follows the home/away rule; elsewhere it's the team's own color |
 | `player` | span's `color` | player names, always in their team's own color (even on the away side) |
 
-Team and player spans carry their resolved `color`, so a renderer never needs to apply the color rules itself. The span with `"clock": true` is the live game clock; renderers replace its text as they count down. `lines` is the same text as plain strings, for logs and the simplest panels. `data` carries everything a richer renderer needs.
+Team and player spans carry their resolved `color`, so a renderer never needs to apply the color rules itself. W-L-OTL records (`6-1-1`) are split into spans the same way: wins light green, losses light red, OT losses gold, dashes white; standings rows also carry them as `record_spans`. The span with `"clock": true` is the live game clock; renderers replace its text as they count down. `lines` is the same text as plain strings, for logs and the simplest panels. `data` carries everything a richer renderer needs.
 
 **Team colors.** Every team carries `colors.display`: its primary brand color with the hue kept but brightness raised, because dark navy and black barely light an LED. Teams whose primary is black use their secondary color, and a few hand-picked exceptions live in `LED_OVERRIDES` in `static/teams.py`; tune those by eye once the panel is built. For live game info (the live game screen and goal / no-goal alerts), teams also carry `colors.game`, which follows the jersey convention: **home team in its color, away team in white**, so the two sides never look alike. Everything else, including the league scoreboard pages and the final-score alert, uses each team's own `colors.display`. Renderers should use `colors.game` when it's present and `colors.display` otherwise.
 

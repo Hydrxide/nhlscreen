@@ -276,9 +276,10 @@ _BIG_ROW_PITCH = 12  # regular-size standings rows: 4 fit under the headers
 # Stat columns after rank and team: (header, x, right-aligned, row key).
 _STANDINGS_COLS = [("GP", 46, True, "gp"), ("REC", 52, False, "record"), ("PTS", 96, True, "points"),
                    ("STK", 104, False, "streak")]
-# Regular size has no room for GP (the record implies it). Widest values: 32. WSH 50-22-10 110 OT2,
-# with 4px between columns.
-_BIG_STANDINGS_COLS = [("REC", 39, False, "record"), ("PTS", 104, True, "points"), ("STK", 109, False, "streak")]
+# Regular size has no room for GP (the record implies it), and points lead. Widest values:
+# 32. WSH 110 50-22-10 OT2: 4px gaps, 3px before 3-digit points, 6px between points and record
+# (so the two numbers don't read as one).
+_BIG_STANDINGS_COLS = [("PTS", 54, True, "points"), ("REC", 61, False, "record"), ("STK", 110, False, "streak")]
 
 
 def layout_standings(cv: Canvas, screen: ScreenDict, now: datetime) -> None:
@@ -318,7 +319,10 @@ def layout_standings(cv: Canvas, screen: ScreenDict, now: datetime) -> None:
         cv.text(team_x, y, team["abbrev"], font, own_color(team))
         for _, x, right, key in cols:
             v = r.get(key)
-            (cv.text_right if right else cv.text)(x, y, "" if v is None else str(v), font, GOLD)
+            if key == "record" and r.get("record_spans"):  # colored by the backend (views.record_spans)
+                cv.spans(x, y, r["record_spans"], font)
+            else:
+                (cv.text_right if right else cv.text)(x, y, "" if v is None else str(v), font, GOLD)
 
 
 def layout_wildcard(cv: Canvas, screen: ScreenDict, now: datetime) -> None:

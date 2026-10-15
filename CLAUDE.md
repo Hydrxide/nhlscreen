@@ -2,9 +2,9 @@
 
 A DIY LED scoreboard for live NHL stats. This repo is the **backend + renderer**. It polls the NHL's public web API, turns data into "screens", decides what the board shows, and draws each screen as a 128×64 RGB frame. The browser preview at `/` shows exactly what the panel shows. `README.md` is the user-facing guide; this file is the working context: decisions, conventions, and what's next.
 
-## Status (as of 2026-10-14)
+## Status (as of 2026-10-15)
 
-- **Done:** NHL client, parsers, event detection, scheduler, FastAPI API + WebSocket, browser preview with team picker, `displayteam` CLI, replay/demo system, 128×64 LED renderer (fonts + layouts), preview-page player swapping and Show now buttons, fixed 25s anti-spoiler delay with a planned (jump-free) live clock, 128 passing tests.
+- **Done:** NHL client, parsers, event detection, scheduler, FastAPI API + WebSocket, browser preview with team picker, `displayteam` CLI, replay/demo system, 128×64 LED renderer (fonts + layouts), preview-page player swapping and Show now buttons, fixed 25s anti-spoiler delay with a planned (jump-free) live clock, 135 passing tests.
 - **Not started:** the hardware output process on the Pi (see *Next steps*).
 
 ## Commands
@@ -74,7 +74,8 @@ The feed is coarse: a new reading every ~20s, and a CDN copy labelled age 0 can 
 
 **Text colors (spans):** every screen's text is `spans`, lines of `{kind, text, color?}`:
 - `label` = **white**: titles, ranks (`1.`), `NEXT:`/`LAST:`, `vs`/`@`, stat names (`SOG`, `GP`), `GOAL!`, `A:`.
-- `value` = **gold** (255,176,0): scores, clock, **period names** (`2ND`, `OT`, `1ST INT`), `FINAL`/`FINAL/OT`, `WARMUP` (NHL state `PRE`), start times, records, stat values, results (`L 4-5`).
+- `value` = **gold** (255,176,0): scores, clock, **period names** (`2ND`, `OT`, `1ST INT`), `FINAL`/`FINAL/OT`, `WARMUP` (NHL state `PRE`), start times, stat values, results (`L 4-5`).
+- **Records** (`W-L-OTL`) are split by `views.record_spans()`: wins light green `WIN_COLOR` (120,255,120), losses light red `LOSS_COLOR` (255,110,110), OT losses gold, dashes white. Standings rows carry them as `record_spans`, which `layout_standings` draws in every table.
 - `team` = team code in its resolved color. `player` = player name in **its team's own color, always** (even on the away side).
 - Any span may carry an explicit `color` that overrides its kind. The backend resolves colors so renderers never apply the rules themselves.
 
@@ -86,7 +87,7 @@ The feed is coarse: a new reading every ~20s, and a CDN copy labelled age 0 can 
 
 **Live game layout (128×64):** team codes 2×, scores 3×, period above a 2× clock between the scores (clock drops to 1× if two-digit scores would crowd it), PP/EN line under the clock, two-color divider at y=42, SOG row, then up to two small-font stat rows (PP, FO).
 
-**Standings (default rotation has all three):** *division* tables only for divisions containing a followed team (one per division, every followed team highlighted); *wildcard* (screen type `wildcard`) per followed conference, two columns: division top 3s on the left, WC1/WC2 + cut line + chasers on the right, and a followed team further back takes the last visible row; *league* = all 32 teams paged 4 per screen (`LEAGUE_PAGE_ROWS`) with an `n/8` counter, 5s each. Those 4-row pages are all regular size and drop the GP column (six columns don't fit at 1×; the record implies GP), `_BIG_STANDINGS_COLS` in `render/layouts.py`; 8-row tables stay small with GP. `conference` scope also exists (paged), not in the default rotation.
+**Standings (default rotation has all three):** *division* tables only for divisions containing a followed team (one per division, every followed team highlighted); *wildcard* (screen type `wildcard`) per followed conference, two columns: division top 3s on the left, WC1/WC2 + cut line + chasers on the right, and a followed team further back takes the last visible row; *league* = all 32 teams paged 4 per screen (`LEAGUE_PAGE_ROWS`) with an `n/8` counter, 5s each. Those 4-row pages are all regular size, ordered rank, team, PTS, REC, STK, and drop the GP column (six columns don't fit at 1×; the record implies GP), `_BIG_STANDINGS_COLS` in `render/layouts.py`; 8-row tables stay small with GP. `conference` scope also exists (paged), not in the default rotation.
 
 **Player cards:** small white stat labels over stat values that are **all regular (1×) size**, so goalie decimals (GAA, SV%) match whole numbers. Both skaters and goalies get "LAST GAME" plus one line in regular size (the small font was too hard to read): skaters `1G 0A @ UTA` (numbers gold, `G`/`A` white), goalies `W  30SV  .909  @ COL` (gold save count directly followed by white `SV`, no space) (decision W/L/OTL omitted for no-decision; save % dropped if too wide). Built by `last_game_spans()` in `render/layouts.py`. Avoid `@` in the small font (it reads as "e").
 

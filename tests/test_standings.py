@@ -90,6 +90,19 @@ def test_league_pages_use_regular_size_rows(standings):
         assert (cv.get(127, y) == HIGHLIGHT) == (r["team"]["abbrev"] == "TOR")
 
 
+def test_records_are_colored_by_part(standings):
+    assert [(s["text"], s.get("color")) for s in views.record_spans("6-1-1")] == [
+        ("6", views.WIN_COLOR), ("-", None), ("1", views.LOSS_COLOR), ("-", None), ("1", None)]
+    page = views.standings_pages(standings, "league", ["TOR"], 5)[0]
+    assert page.lines[1].endswith(page.data["rows"][0]["record"])  # plain text unchanged
+    # Both table sizes draw the backend's colors: wins green, losses red, dashes white.
+    for screen, x, y in ((views.standings_pages(standings, "league", ["TOR"], 5)[0], 61, 18),
+                         (views.standings_screen(standings, "TOR", "division", None, 10), 52, 17)):
+        cv = render(screen.model_dump(mode="json"), T0)
+        colors = {cv.get(px, py) for px in range(x, x + 40) for py in range(y, y + 7)}
+        assert {tuple(views.WIN_COLOR), tuple(views.LOSS_COLOR), (255, 255, 255)} <= colors
+
+
 def test_wildcard_keeps_a_far_back_followed_team_visible(standings):
     screen = views.wildcard_screen(standings, "Eastern", ["PHI"], 12)  # PHI is WC10, past the visible rows
     cv = render(screen.model_dump(mode="json"), T0)

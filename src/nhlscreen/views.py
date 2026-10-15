@@ -450,6 +450,7 @@ def scoreboard_screens(games: list[Game], per_page: int, tz: ZoneInfo, dwell: fl
 
 
 STANDINGS_PAGE_ROWS = 8  # rows that fit under the title + column headers at 128x64
+LEAGUE_PAGE_ROWS = 4  # league table: 8 short pages instead of 4 full ones
 
 
 def _standing_row(s: TeamStanding, rank: int) -> dict[str, Any]:
@@ -503,13 +504,15 @@ def standings_pages(
     dwell: float,
     conference: str | None = None,
 ) -> list[Screen]:
-    """A whole league or conference table, split into screens of 8 rows."""
+    """A whole league (4 rows a screen) or conference (8 rows a screen) table."""
     if scope == "league":
         rows, title, rank, key = sorted(standings, key=lambda s: s.league_rank), "NHL Standings", "league_rank", "league"
+        per_page = LEAGUE_PAGE_ROWS
     else:
         rows = sorted((s for s in standings if s.conference == conference), key=lambda s: s.conference_rank)
         title, rank, key = conference or "", "conference_rank", f"conference:{conference}"
-    chunks = [rows[i : i + STANDINGS_PAGE_ROWS] for i in range(0, len(rows), STANDINGS_PAGE_ROWS)]
+        per_page = STANDINGS_PAGE_ROWS
+    chunks = [rows[i : i + per_page] for i in range(0, len(rows), per_page)]
     screens = []
     for n, chunk in enumerate(chunks):
         table = [_standing_row(s, getattr(s, rank)) for s in chunk]

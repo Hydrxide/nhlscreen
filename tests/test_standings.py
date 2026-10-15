@@ -22,11 +22,11 @@ def standings(fixture):
 
 def test_league_pages_cover_all_teams_in_order(standings):
     pages = views.standings_pages(standings, "league", ["TOR"], 10)
-    assert len(pages) == 4
+    assert len(pages) == 8 and all(len(p.data["rows"]) == 4 for p in pages)
     ranks = [r["rank"] for p in pages for r in p.data["rows"]]
     assert ranks == list(range(1, 33))
-    assert [p.data["page"] for p in pages] == [1, 2, 3, 4] and pages[0].data["pages"] == 4
-    assert pages[0].lines[0] == "NHL STANDINGS 1/4"
+    assert [p.data["page"] for p in pages] == list(range(1, 9)) and pages[0].data["pages"] == 8
+    assert pages[0].lines[0] == "NHL STANDINGS 1/8"
 
 
 def test_wildcard_screen_follows_nhl_format(standings):
@@ -63,7 +63,7 @@ def test_rotation_only_shows_followed_divisions_and_conferences(standings):
     ids = _ids(_config(["TOR"]), standings)
     cycle = ids[: ids.index("standings:division:TOR", 1)]
     assert cycle == ["standings:division:TOR", "wildcard:Eastern",
-                     "standings:league:0", "standings:league:1", "standings:league:2", "standings:league:3"]
+                     *(f"standings:league:{n}" for n in range(8))]
 
     ids = _ids(_config(["TOR", "EDM", "BOS"]), standings)  # BOS shares TOR's division
     cycle = ids[: ids.index("standings:division:TOR", 1)]
@@ -78,6 +78,16 @@ def test_division_table_highlights_every_followed_team(standings):
     rows = {r["team"]["abbrev"]: 17 + i * 6 for i, r in enumerate(screen.data["rows"])}
     assert cv.get(127, rows["TOR"]) == HIGHLIGHT and cv.get(127, rows["BOS"]) == HIGHLIGHT
     assert cv.get(127, rows["OTT"]) != HIGHLIGHT
+
+
+def test_league_pages_use_regular_size_rows(standings):
+    page = next(p for p in views.standings_pages(standings, "league", ["TOR"], 5)
+                if "TOR" in [r["team"]["abbrev"] for r in p.data["rows"]])
+    cv = render(page.model_dump(mode="json"), T0)
+    for i, r in enumerate(page.data["rows"]):
+        y = 18 + i * 12  # regular font rows, 12px apart; all four on the panel
+        assert any(cv.get(x, y + 6) != (0, 0, 0) for x in range(18, 36))  # bottom of the 7px team code
+        assert (cv.get(127, y) == HIGHLIGHT) == (r["team"]["abbrev"] == "TOR")
 
 
 def test_wildcard_keeps_a_far_back_followed_team_visible(standings):

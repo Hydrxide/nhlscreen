@@ -90,7 +90,7 @@ def test_menu_lists_what_can_be_shown(runtime):
 
 async def test_show_league_plays_every_page(runtime):
     screens = await runtime.show_now("standings_league")
-    assert [s.id for s in screens] == [f"standings:league:{n}" for n in range(4)]
+    assert [s.id for s in screens] == [f"standings:league:{n}" for n in range(8)]
     assert runtime.screen.id == "standings:league:0"
 
 

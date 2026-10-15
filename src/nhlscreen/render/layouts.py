@@ -271,6 +271,16 @@ def _highlights(d: dict[str, Any]) -> set[str]:
     return {hl} if isinstance(hl, str) else set(hl)
 
 
+_BIG_ROW_PITCH = 12  # regular-size standings rows: 4 fit under the headers
+
+# Stat columns after rank and team: (header, x, right-aligned, row key).
+_STANDINGS_COLS = [("GP", 46, True, "gp"), ("REC", 52, False, "record"), ("PTS", 96, True, "points"),
+                   ("STK", 104, False, "streak")]
+# Regular size has no room for GP (the record implies it). Widest values: 32. WSH 50-22-10 110 OT2,
+# with 4px between columns.
+_BIG_STANDINGS_COLS = [("REC", 39, False, "record"), ("PTS", 104, True, "points"), ("STK", 109, False, "streak")]
+
+
 def layout_standings(cv: Canvas, screen: ScreenDict, now: datetime) -> None:
     d = screen["data"]
     rows = d.get("rows") or []
@@ -278,12 +288,22 @@ def layout_standings(cv: Canvas, screen: ScreenDict, now: datetime) -> None:
     cv.text(1, 0, d.get("title") or "", REGULAR, WHITE)
     if (d.get("pages") or 1) > 1:
         cv.text_right(cv.width - 2, 1, f"{d['page']}/{d['pages']}", SMALL, WHITE)
-    # columns (small font): rank | team | GP | record | PTS | streak
-    for text, x, right in (("GP", 46, True), ("REC", 52, False), ("PTS", 96, True), ("STK", 104, False)):
-        (cv.text_right if right else cv.text)(x, 10, text, SMALL, WHITE)
 
-    top, pitch = 17, SMALL.line_height
-    max_rows = (cv.height - top + 1) // pitch
+    def fits(top: int, pitch: int, font: Font) -> int:
+        """Rows that fit with the last one's text still on the panel."""
+        return (cv.height - top - font.height) // pitch + 1
+
+    # Short tables (the 4-row league pages) are all regular size; 8-row tables are small.
+    if len(rows) <= fits(18, _BIG_ROW_PITCH, REGULAR):
+        top, pitch, font, bar = 18, _BIG_ROW_PITCH, REGULAR, (-2, _BIG_ROW_PITCH - 1)
+        rank_x, team_x, cols = 13, 18, _BIG_STANDINGS_COLS
+    else:
+        top, pitch, font, bar = 17, SMALL.line_height, SMALL, (-1, SMALL.line_height + 1)
+        rank_x, team_x, cols = 8, 12, _STANDINGS_COLS
+    for header, x, right, _ in cols:
+        (cv.text_right if right else cv.text)(x, 10, header, SMALL, WHITE)
+
+    max_rows = fits(top, pitch, font)
     if len(rows) > max_rows:  # keep a followed team in view
         idx = next((i for i, r in enumerate(rows) if r["team"]["abbrev"] in followed), 0)
         start = min(max(0, idx - max_rows // 2), len(rows) - max_rows)
@@ -293,13 +313,12 @@ def layout_standings(cv: Canvas, screen: ScreenDict, now: datetime) -> None:
         team = r["team"]
         if team["abbrev"] in followed:
             # Neutral bar: a team-colored one hides that team's own code.
-            cv.fill(0, y - 1, cv.width, pitch + 1, HIGHLIGHT)
-        cv.text_right(8, y, f"{r['rank']}.", SMALL, WHITE)
-        cv.text(12, y, team["abbrev"], SMALL, own_color(team))
-        cv.text_right(46, y, str(r.get("gp", "")), SMALL, GOLD)
-        cv.text(52, y, r.get("record") or "", SMALL, GOLD)
-        cv.text_right(96, y, str(r.get("points", "")), SMALL, GOLD)
-        cv.text(104, y, r.get("streak") or "", SMALL, GOLD)
+            cv.fill(0, y + bar[0], cv.width, bar[1], HIGHLIGHT)
+        cv.text_right(rank_x, y, f"{r['rank']}.", font, WHITE)
+        cv.text(team_x, y, team["abbrev"], font, own_color(team))
+        for _, x, right, key in cols:
+            v = r.get(key)
+            (cv.text_right if right else cv.text)(x, y, "" if v is None else str(v), font, GOLD)
 
 
 def layout_wildcard(cv: Canvas, screen: ScreenDict, now: datetime) -> None:

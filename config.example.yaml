@@ -31,7 +31,7 @@ display:
     - {screen: scoreboard, dwell: 8}      # one screen per page of games
     - {screen: standings, scope: division, dwell: 12}   # only divisions with a followed team
     - {screen: standings, scope: wildcard, dwell: 12}   # followed teams' conferences
-    - {screen: standings, scope: league, dwell: 10}     # all 32 teams, 4 pages
+    - {screen: standings, scope: league, dwell: 5}      # all 32 teams, 8 pages of 4
     - {screen: leaders, dwell: 8}         # one screen per leader category
     - {screen: player_card, dwell: 8}     # one screen per favorite player
 

@@ -214,7 +214,7 @@ class Runtime:
         "scoreboard": ("Scoreboard", RotationEntry(screen="scoreboard", dwell=8)),
         "standings_division": ("Division", RotationEntry(screen="standings", scope="division", dwell=12)),
         "standings_wildcard": ("Wild card", RotationEntry(screen="standings", scope="wildcard", dwell=12)),
-        "standings_league": ("League standings", RotationEntry(screen="standings", scope="league", dwell=10)),
+        "standings_league": ("League standings", RotationEntry(screen="standings", scope="league", dwell=5)),
         "leaders": ("Leaders", RotationEntry(screen="leaders", dwell=8)),
         "player_card": ("Player cards", RotationEntry(screen="player_card", dwell=8)),
         "goal_alert": ("Goal alert", None),

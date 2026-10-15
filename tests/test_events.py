@@ -51,6 +51,20 @@ def test_goal_event_has_scorer_and_score(full):
     assert det.from_detail(snapshot(full, goal_at + 1), NOW) == []
 
 
+def test_shot_upgraded_to_goal_alerts(full):
+    # The NHL can post a goal as a shot first, then change the same event id to a goal.
+    det = EventDetector()
+    goal_at = index_of(full, "goal")
+    early = snapshot(full, goal_at + 1)
+    early.plays[goal_at].type = "shot-on-goal"
+    early.game.goals = early.game.goals[:-1]
+    early.game.away.score = early.game.home.score = 0
+    det.from_detail(snapshot(full, goal_at), NOW)
+    assert det.from_detail(early, NOW) == []
+    events = det.from_detail(snapshot(full, goal_at + 1), NOW)
+    assert [e.kind for e in events] == ["goal"] and events[0].goal.scorer_name == "D. But"
+
+
 def test_penalty_and_period_events(full):
     det = EventDetector()
     det.from_detail(snapshot(full, 0), NOW)

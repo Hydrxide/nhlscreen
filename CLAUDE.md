@@ -56,6 +56,7 @@ NHL API -> nhl/client.py -> nhl/parsers.py -> nhl/models.py
 - `play-by-play` has score, clock, `situation`, and all events. `right-rail` has team stats (SOG, faceoffs, PP, hits) in one small response. `landing` has three stars.
 - `situationCode` is 4 digits: away goalie, away skaters, home skaters, home goalie. **Pulled goalie = extra attacker, not a power play.** Official strength subtracts one skater for a pulled goalie (`Situation.away_strength`), which matches the NHL's own ev/pp/sh labels on all test goals.
 - After a penalty expires the feed keeps the PP `situationCode` (e.g. 1451) and `situationDescriptions: [PP]` until the next play, but drops `situation.timeRemaining`/`secondsRemaining` (seen live 2026-10-14, MTL @ WSH). So a power play is shown only while it has time left (`views.live_game_screen`), and the renderer hides it once its local countdown runs out.
+- Plays get edited in place: same `eventId`, new `typeDescKey` (seen live 2026-10-15: `missed-shot` → `goal`, `blocked-shot` → `missed-shot`), and plays get removed. The detector keys seen plays by id *and* type, so a shot upgraded to a goal still alerts.
 - The NHL removes an overturned goal's play from play-by-play; the detector emits `goal_overturned` when a seen goal id disappears.
 - For untracked games the scoreboard **score change** is authoritative (the goal list can lag).
 - Standings `wildcardSequence` is 0 for division leaders. No published rate limits; ~35 req/min during a favorite game (play-by-play every 2s, plus right-rail and scoreboard).

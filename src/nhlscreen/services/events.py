@@ -20,7 +20,9 @@ _PLAY_KINDS = {"period-start": "period_start", "period-end": "period_end", "game
 
 class EventDetector:
     def __init__(self, memory: int = 2000) -> None:
-        self._seen_plays: dict[int, set[int]] = {}
+        # game id -> {event id: play type}. The NHL sometimes posts a play as a
+        # shot and upgrades the same event id to a goal, so a type change counts as new.
+        self._seen_plays: dict[int, dict[int, str]] = {}
         self._goal_ids: dict[int, set[int]] = {}
         self._emitted: set[str] = set()
         self._emitted_order: deque[str] = deque()
@@ -59,11 +61,11 @@ class EventDetector:
 
     def from_detail(self, detail: GameDetail, now: datetime) -> list[GameEvent]:
         game = detail.game
-        current_ids = {p.event_id for p in detail.plays}
+        current = {p.event_id: p.type for p in detail.plays}
         current_goal_ids = {p.event_id for p in detail.plays if p.type == "goal"}
 
         if game.id not in self._seen_plays:
-            self._seen_plays[game.id] = current_ids
+            self._seen_plays[game.id] = current
             self._goal_ids[game.id] = current_goal_ids
             if game.state.is_final:
                 self._remember(f"final:{game.id}")
@@ -75,7 +77,7 @@ class EventDetector:
         events: list[GameEvent] = []
 
         for play in detail.plays:  # already in game order
-            if play.event_id in seen:
+            if seen.get(play.event_id) == play.type:
                 continue
             if play.type == "goal" and play.event_id in goals_by_id:
                 goal = goals_by_id[play.event_id]
@@ -105,7 +107,7 @@ class EventDetector:
         if game.state.is_final and self._remember(f"final:{game.id}"):
             events.append(self._event(game, now, kind="game_final", key=f"final:{game.id}"))
 
-        self._seen_plays[game.id] = seen | current_ids
+        self._seen_plays[game.id] = seen | current
         self._goal_ids[game.id] = current_goal_ids
         return events
 

@@ -1,22 +1,29 @@
 """Background loops that keep the Store fresh, with cadence adapted to game state.
 
   scoreboard   20s while anything is live, 60s pregame, 15 min otherwise
-  favorite     play-by-play every 5s (+ team stats every 30s) while a favorite
+  favorite     play-by-play every 2s (+ team stats every 30s) while a favorite
                team's game is live or about to start
   standings / leaders / schedules / players   slow refreshes (hours)
+
+Anti-spoiler delay: live data (scoreboard and favorite-game snapshots) is fetched
+on time but only applied to the Store, and diffed into events, once it is
+``config.spoiler_delay_seconds`` old. Everything downstream (clock, scores, goal
+and final alerts) therefore runs that far behind, in step with a delayed TV feed.
+Polling decisions (start/stop tracking) still use the fresh data.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+from collections import deque
 from datetime import datetime, timezone
 from typing import Awaitable, Callable
 
 from ..config import Config
 from ..nhl import parsers
-from ..nhl.client import NHLClient, NHLUnavailable
-from ..nhl.models import Game, GameEvent
+from ..nhl.client import SCORE_NOW_PATH, NHLClient, NHLUnavailable, play_by_play_path
+from ..nhl.models import Game, GameDetail, GameEvent
 from ..store import Store
 from .events import EventDetector
 
@@ -45,6 +52,10 @@ class Poller:
         self.speed = speed
         self._tasks: list[asyncio.Task] = []
         self._tracked: dict[int, asyncio.Task] = {}
+        # Anti-spoiler queue: (loop time fetched, apply), released oldest first.
+        self._pending: deque[tuple[float, Callable[[], None]]] = deque()
+        self._pending_changed = asyncio.Event()
+        self._release_task: asyncio.Task | None = None
 
     # ------------------------------------------------------------------ lifecycle
 
@@ -60,10 +71,13 @@ class Poller:
 
     async def stop(self) -> None:
         tasks = self._tasks + list(self._tracked.values())
+        if self._release_task:
+            tasks.append(self._release_task)
         for t in tasks:
             t.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
-        self._tasks, self._tracked = [], {}
+        self._tasks, self._tracked, self._release_task = [], {}, None
+        self._pending.clear()
 
     async def _sleep(self, seconds: float) -> None:
         await asyncio.sleep(max(0.05, seconds / self.speed))
@@ -90,14 +104,62 @@ class Poller:
             if self.on_event:
                 self.on_event(ev)
 
+    # ------------------------------------------------------------------ anti-spoiler delay
+
+    @property
+    def spoiler_delay(self) -> float:
+        """The delay in real seconds (replays compress it like every other wait)."""
+        if not self.config.spoiler_delay_enabled:
+            return 0.0
+        return max(0.0, self.config.spoiler_delay_seconds) / self.speed
+
+    def _deliver(self, apply: Callable[[], None]) -> None:
+        """Apply a live-data update now, or once it is spoiler_delay old."""
+        if self.spoiler_delay <= 0 and not self._pending:
+            apply()
+            return
+        self._pending.append((asyncio.get_running_loop().time(), apply))
+        if self._release_task is None or self._release_task.done():
+            self._release_task = asyncio.create_task(self._release_loop(), name="spoiler-delay")
+        self._pending_changed.set()
+
+    def delay_changed(self) -> None:
+        """Re-time queued updates after the delay was changed or toggled at runtime."""
+        self._pending_changed.set()
+
+    def _release_due(self) -> None:
+        now = asyncio.get_running_loop().time()
+        while self._pending and self._pending[0][0] + self.spoiler_delay <= now:
+            _, apply = self._pending.popleft()
+            try:
+                apply()
+            except Exception:
+                log.exception("Applying delayed update failed")
+
+    async def _release_loop(self) -> None:
+        while True:
+            self._pending_changed.clear()
+            self._release_due()
+            wait = None
+            if self._pending:
+                wait = self._pending[0][0] + self.spoiler_delay - asyncio.get_running_loop().time()
+            try:
+                await asyncio.wait_for(self._pending_changed.wait(), wait)
+            except TimeoutError:
+                pass
+
     # ------------------------------------------------------------------ scoreboard
 
     async def refresh_scoreboard(self) -> None:
         games = parsers.parse_score(await self.client.score_now())
-        previous = dict(self.store.games)
-        self.store.set_games(games)
-        self._emit(self.detector.from_scoreboard(previous, games, self.now(), skip=set(self._tracked)))
+        age = self.client.age(SCORE_NOW_PATH)
         self._update_tracking(games)
+        self._deliver(lambda: self._apply_scoreboard(games, age))
+
+    def _apply_scoreboard(self, games: list[Game], age: float) -> None:
+        previous = dict(self.store.games)
+        self.store.set_games(games, age)
+        self._emit(self.detector.from_scoreboard(previous, games, self.now(), skip=set(self._tracked)))
 
     def scoreboard_interval(self) -> float:
         p = self.config.polling
@@ -155,6 +217,7 @@ class Poller:
 
     async def refresh_game(self, game_id: int, with_stats: bool) -> Game:
         detail = parsers.parse_play_by_play(await self.client.play_by_play(game_id))
+        age = self.client.age(play_by_play_path(game_id))  # snapshot age at fetch time
         if with_stats:
             try:
                 detail.team_stats = parsers.parse_right_rail(await self.client.right_rail(game_id))
@@ -165,10 +228,13 @@ class Poller:
                 detail.three_stars = parsers.parse_three_stars(await self.client.landing(game_id))
             except NHLUnavailable as exc:
                 log.warning("three stars unavailable for %s: %s", game_id, exc)
-        events = self.detector.from_detail(detail, self.now())
-        self.store.set_detail(detail)
-        self._emit(events)
+        self._deliver(lambda: self._apply_detail(detail, age))
         return detail.game
+
+    def _apply_detail(self, detail: GameDetail, age: float) -> None:
+        events = self.detector.from_detail(detail, self.now())
+        self.store.set_detail(detail, age)
+        self._emit(events)
 
     async def _track_game(self, game_id: int) -> None:
         p = self.config.polling
@@ -189,7 +255,9 @@ class Poller:
                 log.info("Game %s final; stopping live tracking", game_id)
                 # One more scoreboard refresh so the league view reflects the final.
                 await self._safely(self.refresh_scoreboard)
-                # Schedules carry last-game results for the next_game screen.
+                # Schedules carry last-game results for the next_game screen; wait out
+                # the spoiler delay so they can't reveal the result before the final alert.
+                await asyncio.sleep(self.spoiler_delay)
                 await self._safely(self.refresh_schedules)
                 return
             interval = p.live_poll_seconds

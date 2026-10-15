@@ -4,13 +4,17 @@ favorite_teams: [TOR]
 # NHL player IDs (the number in an nhl.com/player/... URL).
 favorite_players: [8486067, 8475683]   # Gavin McKenna, Sergei Bobrovsky
 timezone: America/Toronto
+# Anti-spoiler: show live game data (clock, scores, goal alerts, finals) this many
+# seconds late, to match a TV broadcast that runs behind real time. 0-300.
+spoiler_delay_seconds: 15
+spoiler_delay_enabled: true    # false = off (the preview page has an on/off button)
 
 server:
   host: 127.0.0.1     # use 0.0.0.0 to let other devices on your LAN reach it
   port: 9134
 
 polling:
-  live_poll_seconds: 5        # favorite team live play-by-play (min 2)
+  live_poll_seconds: 2        # favorite team live play-by-play (min 2)
   live_stats_seconds: 30      # SOG / faceoffs / PP stats during favorite game
   scoreboard_live_seconds: 20 # league scores while any game is live
   scoreboard_pregame_seconds: 60

@@ -9,12 +9,14 @@ from zoneinfo import ZoneInfo
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
+MAX_SPOILER_DELAY = 300.0
+
 ScreenKind = Literal["next_game", "scoreboard", "standings", "leaders", "player_card"]
 
 
 class PollingConfig(BaseModel):
     # Favorite-team live game: play-by-play carries score, clock, situation, events.
-    live_poll_seconds: float = Field(5.0, ge=2.0)
+    live_poll_seconds: float = Field(2.0, ge=2.0)
     # Team game stats (SOG, faceoffs, PP, hits) from the right-rail endpoint.
     live_stats_seconds: float = Field(30.0, ge=10.0)
     # League scoreboard. The CDN caches it ~19s, so faster polling gains nothing.
@@ -78,6 +80,11 @@ class Config(BaseModel):
     # NHL player IDs: Gavin McKenna, Sergei Bobrovsky
     favorite_players: list[int] = Field(default_factory=lambda: [8486067, 8475683])
     timezone: str = "America/Toronto"
+    # Anti-spoiler: hold live game data (clock, scores, goal alerts, finals) back this
+    # many seconds so the board stays in step with a TV broadcast that runs behind.
+    spoiler_delay_seconds: float = Field(15.0, ge=0, le=MAX_SPOILER_DELAY)
+    # Off = show live data as soon as it arrives, keeping the seconds above for next time.
+    spoiler_delay_enabled: bool = True
     api_base_url: str = "https://api-web.nhle.com/v1"
     user_agent: str = "nhlscreen/0.1 (DIY LED scoreboard)"
     server: ServerConfig = Field(default_factory=ServerConfig)

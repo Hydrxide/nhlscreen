@@ -42,6 +42,23 @@ async def test_respects_cache_control_max_age(client, clock):
 
 
 @respx.mock
+async def test_cdn_age_counts_against_max_age(client, clock):
+    """A copy that's already 15s old is only fresh for 4 more; its data is 15s old."""
+    route = respx.get(f"{BASE}/gamecenter/1/play-by-play").mock(
+        return_value=httpx.Response(200, json={"v": 1}, headers={"Cache-Control": "max-age=19", "Age": "15"})
+    )
+    await client.play_by_play(1)
+    assert client.age("/gamecenter/1/play-by-play") == 15
+    clock.t += 3
+    await client.play_by_play(1)
+    assert route.call_count == 1 and client.age("/gamecenter/1/play-by-play") == 18
+    clock.t += 2
+    await client.play_by_play(1)
+    assert route.call_count == 2  # CDN copy expired: refetch right away
+    assert client.age("/gamecenter/2/play-by-play") == 0  # never fetched
+
+
+@respx.mock
 async def test_rate_limit_serves_stale_data_and_backs_off(client, clock):
     route = respx.get(f"{BASE}/gamecenter/1/play-by-play").mock(
         side_effect=[

@@ -2,7 +2,10 @@
 
 Responsibilities:
   * honor the CDN's Cache-Control max-age so we never refetch data that can't
-    have changed yet
+    have changed yet; the copy's Age counts against it, so we refetch the moment
+    the CDN's copy expires instead of locking onto copies that are already stale
+  * remember how old each response's data is (``age``), so a live clock reading
+    can be dated to when it was true rather than when we happened to fetch it
   * back off host-wide on 429 / 5xx / network errors (honoring Retry-After)
   * fall back to the last good response so the board never goes blank
 """
@@ -36,6 +39,8 @@ class _CacheEntry:
     data: Any
     fetched_at: float
     expires_at: float
+    # When the CDN's origin produced this data (fetched_at minus the Age header).
+    produced_at: float
 
 
 class NHLClient:
@@ -74,6 +79,11 @@ class NHLClient:
         if not params:
             return path
         return path + "?" + "&".join(f"{k}={v}" for k, v in sorted(params.items()))
+
+    def age(self, path: str, params: dict[str, Any] | None = None) -> float:
+        """Seconds since the data last returned for this request was produced (0 if unknown)."""
+        cached = self._cache.get(self._key(path, params))
+        return max(0.0, self._clock() - cached.produced_at) if cached else 0.0
 
     def _register_failure(self, retry_after: float | None) -> None:
         self._failures += 1
@@ -130,9 +140,11 @@ class NHLClient:
             self._failures = 0
             self._backoff_until = 0.0
             max_age = _parse_max_age(resp.headers.get("Cache-Control"))
-            ttl = max(min_ttl, max_age)
+            age = min(_parse_age(resp.headers.get("Age")), max_age)
+            ttl = max(min_ttl, max_age - age)
             fetched = self._clock()
-            self._cache[key] = _CacheEntry(data=data, fetched_at=fetched, expires_at=fetched + ttl)
+            self._cache[key] = _CacheEntry(data=data, fetched_at=fetched, expires_at=fetched + ttl,
+                                           produced_at=fetched - age)
             return data
 
     @staticmethod
@@ -144,10 +156,10 @@ class NHLClient:
     # ------------------------------------------------------------------ endpoints
 
     async def score_now(self) -> Any:
-        return await self.get_json("/score/now")
+        return await self.get_json(SCORE_NOW_PATH)
 
     async def play_by_play(self, game_id: int) -> Any:
-        return await self.get_json(f"/gamecenter/{game_id}/play-by-play")
+        return await self.get_json(play_by_play_path(game_id))
 
     async def right_rail(self, game_id: int) -> Any:
         return await self.get_json(f"/gamecenter/{game_id}/right-rail")
@@ -173,6 +185,20 @@ class NHLClient:
 
     async def player(self, player_id: int) -> Any:
         return await self.get_json(f"/player/{player_id}/landing")
+
+
+def play_by_play_path(game_id: int) -> str:
+    return f"/gamecenter/{game_id}/play-by-play"
+
+
+SCORE_NOW_PATH = "/score/now"
+
+
+def _parse_age(header: str | None) -> float:
+    try:
+        return max(0.0, float(header)) if header else 0.0
+    except ValueError:
+        return 0.0
 
 
 def _parse_max_age(header: str | None) -> float:

@@ -41,7 +41,7 @@ Live NHL data, or a demo game replayed at 10× (a full game in about 7 minutes).
 .venv\Scripts\python.exe -m nhlscreen --replay replays\synthetic --speed 10 # replay
 ```
 
-Open **http://127.0.0.1:9134/** for a live preview of the board. The left column has the LED preview, **Show now** buttons and favorite players; the right column has the team picker, recent events and a collapsible **Screen JSON** debug panel (collapsed by default; the page remembers if you open it).
+Open **http://127.0.0.1:9134/** for a live preview of the board. The left column has the LED preview, **Show now** buttons, the anti-spoiler delay and favorite players; the right column has the team picker, recent events and a collapsible **Screen JSON** debug panel (collapsed by default; the page remembers if you open it).
 
 ## What the board shows
 
@@ -83,7 +83,7 @@ Team and player spans carry their resolved `color`, so a renderer never needs to
 
 **Team colors.** Every team carries `colors.display`: its primary brand color with the hue kept but brightness raised, because dark navy and black barely light an LED. Teams whose primary is black use their secondary color, and a few hand-picked exceptions live in `LED_OVERRIDES` in `static/teams.py`; tune those by eye once the panel is built. For live game info (the live game screen and goal / no-goal alerts), teams also carry `colors.game`, which follows the jersey convention: **home team in its color, away team in white**, so the two sides never look alike. Everything else, including the league scoreboard pages and the final-score alert, uses each team's own `colors.display`. Renderers should use `colors.game` when it's present and `colors.display` otherwise.
 
-For a live game, `data.clock` has `seconds_remaining`, `running`, `as_of` (when that reading arrived) and `rate` (1, except in sped-up replays). Renderers should **count the clock down locally** between polls, showing `seconds_remaining - (now - as_of) * rate`; `/debug` does this. That way the clock looks real-time even though data arrives every 5 seconds.
+For a live game, `data.clock` has `seconds_remaining`, `running`, `as_of` (when that reading was true: arrival time minus the snapshot's CDN age) and `rate` (1, except in sped-up replays). Renderers should **count the clock down locally** between polls, showing `seconds_remaining - (now - as_of) * rate`; `/debug` does this. That way the clock looks real-time even though the NHL only publishes a new snapshot about every 20 seconds (the CDN caches play-by-play for 19s, so polling every 2s just catches each new snapshot promptly). Because of that, a short stoppage between snapshots isn't seen right away: the board counts on for up to ~20s, then snaps back to the stopped time.
 
 ## Switching teams
 
@@ -103,6 +103,10 @@ There's no login, so anyone on your Wi-Fi can switch teams. Bookmark the page or
 ### Show now (browser)
 
 Under the board preview, **Show now** has a button for each screen: next game, scoreboard, division, wild card, league standings, leaders, player cards, goal alert and final score. A press clears the queue and plays that screen next (every page of it, each for its normal time, even during a live game), then the rotation starts over from the top. **Goal alert** and **Final score** replay your team's most recent real game. Buttons with nothing to show yet are greyed out. Every open page controls the same board, so the latest press wins.
+
+### Anti-spoiler delay (browser)
+
+TV and streaming broadcasts run behind real time, so a board fed straight from the NHL would flash goals before you see them. The **Anti-spoiler delay** box holds all live game data back by a number of seconds (15 by default): the live clock, scores, goal and no-goal alerts, and final scores. Enter a value from 0 to 300 and press **Set delay**; raise it if the board still beats your TV. The **Delay on / Delay off** button switches it off and back on with one press, keeping your number. A change takes effect at once (shortening it catches the board up immediately). It's saved in `nhlscreen-state.json`; **Reset to config** returns to `spoiler_delay_seconds` from `config.yaml`. Standings, schedules, leaders and player cards aren't delayed. In replays the delay is in game seconds, so it shrinks with `--speed` like everything else.
 
 ### Favorite players (browser)
 
@@ -153,6 +157,7 @@ The preview page draws these frames as LED dots several times a second, so what 
 | `GET /render/frame`, `/render/frame.png` | the current screen as the LED matrix frame (raw RGB, or a PNG preview) |
 | `GET/PUT /control/teams` | current favorite teams; `{"teams": ["EDM"]}` to switch, `{"teams": null}` to reset (used by `displayteam`) |
 | `GET /control/screens`, `POST /control/show` | the Show now menu; `{"screen": "standings_league"}` plays that screen next |
+| `GET/PUT /control/delay` | anti-spoiler delay; `{"seconds": 30}` to change (0–300), `{"enabled": false}` / `true` to switch off/on, `{"seconds": null}` to reset |
 | `GET/PUT /control/players` | current favorite players; `{"players": [8486067, 8475683]}` to switch (IDs checked with the NHL), `{"players": null}` to reset |
 
 A renderer only needs to connect to `WS /events` and draw each `screen` message it receives.
@@ -163,7 +168,7 @@ The NHL API is unofficial and doesn't publish rate limits. Cadence follows what 
 
 | Data | Live | Otherwise |
 |---|---|---|
-| Favorite-game play-by-play (score, clock, events) | 5 s (`live_poll_seconds`, min 2) | not polled |
+| Favorite-game play-by-play (score, clock, events) | 2 s (`live_poll_seconds`, the minimum) | not polled |
 | Favorite-game team stats (SOG, faceoffs, PP) | 30 s | — |
 | League scoreboard (the CDN caches it for about 19 s) | 20 s | 60 s pregame, 15 min idle |
 | Standings, leaders, players / schedules | 1 h / 6 h | |

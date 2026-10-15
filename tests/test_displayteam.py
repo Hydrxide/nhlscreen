@@ -142,12 +142,15 @@ class StubClient:
     async def play_by_play(self, game_id):
         return self.pbp
 
+    def age(self, path, params=None):
+        return 0.0
+
     async def right_rail(self, game_id):
         return {"teamGameStats": []}
 
 
 async def test_poller_retargets_live_tracking(fixture):
-    rt = Runtime(Config(favorite_teams=["EDM"]))
+    rt = Runtime(Config(favorite_teams=["EDM"], spoiler_delay_seconds=0))
     rt.poller.client = StubClient(fixture)
     try:
         await rt.poller.refresh_scoreboard()

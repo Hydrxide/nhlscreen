@@ -11,7 +11,7 @@ from typing import Any
 
 import httpx
 
-from .config import Config, RotationEntry
+from .config import MAX_SPOILER_DELAY, Config, RotationEntry
 from .nhl import parsers
 from .nhl.client import NHLClient, NHLNotFound, NHLUnavailable
 from .nhl.models import GameEvent
@@ -38,6 +38,8 @@ class Runtime:
         # From config.yaml; "reset" (displayteam --reset, the preview page) returns to these.
         self.configured_teams = list(config.favorite_teams)
         self.configured_players = list(config.favorite_players)
+        self.configured_delay = config.spoiler_delay_seconds
+        self.configured_delay_enabled = config.spoiler_delay_enabled
         self.state_path = state_path
         self._load_state()
         self._favorites_lock = asyncio.Lock()
@@ -188,6 +190,13 @@ class Runtime:
         if isinstance(players, list) and all(isinstance(p, int) for p in players):
             log.info("favorite players from %s: %s", self.state_path, players)
             self.config.favorite_players = list(players)
+        delay = state.get("spoiler_delay_seconds")
+        if isinstance(delay, (int, float)) and 0 <= delay <= MAX_SPOILER_DELAY:
+            log.info("anti-spoiler delay from %s: %gs", self.state_path, delay)
+            self.config.spoiler_delay_seconds = float(delay)
+        enabled = state.get("spoiler_delay_enabled")
+        if isinstance(enabled, bool):
+            self.config.spoiler_delay_enabled = enabled
 
     def _save_state(self, key: str, value: Any | None) -> None:
         """Set (or with None, clear) one saved choice; other choices are kept."""
@@ -205,6 +214,47 @@ class Runtime:
                 self.state_path.unlink(missing_ok=True)
         except OSError as exc:
             log.warning("could not save state to %s: %s", self.state_path, exc)
+
+    # ------------------------------------------------------------------ anti-spoiler delay
+
+    def set_spoiler_delay(self, seconds: float | None) -> float:
+        """Change the anti-spoiler delay at runtime. ``None`` restores config.yaml's value.
+
+        Updates already fetched are re-timed, so a shorter delay catches up at once
+        and a longer one holds the board until the new delay has passed.
+        """
+        if seconds is not None and not 0 <= seconds <= MAX_SPOILER_DELAY:
+            raise ValueError(f"delay must be between 0 and {MAX_SPOILER_DELAY:g} seconds")
+        new = self.configured_delay if seconds is None else round(float(seconds), 1)
+        self.config.spoiler_delay_seconds = new
+        self._save_state("spoiler_delay_seconds", None if seconds is None else new)
+        if seconds is None:  # a reset restores the on/off choice too
+            self.config.spoiler_delay_enabled = self.configured_delay_enabled
+            self._save_state("spoiler_delay_enabled", None)
+        self._delay_changed()
+        return new
+
+    def set_spoiler_delay_enabled(self, enabled: bool) -> bool:
+        """Turn the delay on or off, keeping its length for when it's turned back on."""
+        self.config.spoiler_delay_enabled = enabled
+        self._save_state("spoiler_delay_enabled", None if enabled == self.configured_delay_enabled else enabled)
+        self._delay_changed()
+        return enabled
+
+    def _delay_changed(self) -> None:
+        self.poller.delay_changed()
+        c = self.config
+        log.info("anti-spoiler delay -> %s", f"{c.spoiler_delay_seconds:g}s" if c.spoiler_delay_enabled else "off")
+        self.store.publish({"type": "delay", **self.delay_state()})
+
+    def delay_state(self) -> dict[str, Any]:
+        return {
+            "spoiler_delay_seconds": self.config.spoiler_delay_seconds,
+            "enabled": self.config.spoiler_delay_enabled,
+            "configured_delay_seconds": self.configured_delay,
+            "configured_enabled": self.configured_delay_enabled,
+            "max_delay_seconds": MAX_SPOILER_DELAY,
+        }
 
     # ------------------------------------------------------------------ show now
 
@@ -277,10 +327,14 @@ class Runtime:
         game_id = self._recent_game_id(final_only=kind == "final_alert")
         if game_id is None:
             raise ValueError("No recent game for your teams yet")
-        try:
-            detail = parsers.parse_play_by_play(await self.client.play_by_play(game_id))
-        except NHLUnavailable:
-            raise ValueError("Couldn't reach the NHL API; try again") from None
+        # A tracked game's stored detail is the spoiler-delayed view; a fresh fetch
+        # could show a goal or final the TV hasn't aired yet.
+        detail = self.store.details.get(game_id)
+        if detail is None:
+            try:
+                detail = parsers.parse_play_by_play(await self.client.play_by_play(game_id))
+            except NHLUnavailable:
+                raise ValueError("Couldn't reach the NHL API; try again") from None
         game, d, now = detail.game, self.config.display, datetime.now(timezone.utc)
         base = {"game_id": game.id, "away_abbrev": game.away.abbrev, "home_abbrev": game.home.abbrev,
                 "occurred_at": now}
@@ -293,10 +347,12 @@ class Runtime:
                               away_score=goal.away_score, home_score=goal.home_score, period=goal.period,
                               period_type=goal.period_type, goal=goal, **base)
             return views.goal_alert_screen(event, d.alert_seconds)
-        try:
-            detail.three_stars = parsers.parse_three_stars(await self.client.landing(game_id))
-        except NHLUnavailable:
-            pass  # the final screen works without stars
+        if not detail.three_stars:
+            try:
+                detail = detail.model_copy(update={
+                    "three_stars": parsers.parse_three_stars(await self.client.landing(game_id))})
+            except NHLUnavailable:
+                pass  # the final screen works without stars
         event = GameEvent(kind="game_final", key=f"preview:final:{game.id}", away_score=game.away.score,
                           home_score=game.home.score, **base)
         return views.final_alert_screen(event, game, detail, d.final_alert_seconds)

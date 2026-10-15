@@ -40,21 +40,22 @@ class Store:
     def touch(self, section: str) -> None:
         self.updated_at[section] = datetime.now(timezone.utc)
 
-    def set_games(self, games: list[Game]) -> None:
+    def set_games(self, games: list[Game], age: float = 0.0) -> None:
+        """``age``: how many seconds old the data already was (see _note_clock)."""
         self.games = {g.id: g for g in games}
         for g in games:
             if g.id not in self.details:  # tracked games get fresher clocks from play-by-play
-                self._note_clock(g)
+                self._note_clock(g, age)
         self.touch("games")
 
-    def set_detail(self, detail: GameDetail) -> None:
+    def set_detail(self, detail: GameDetail, age: float = 0.0) -> None:
         previous = self.details.get(detail.game.id)
         if previous:
             # play-by-play refreshes don't carry these; keep what we had
             detail.team_stats = detail.team_stats or previous.team_stats
             detail.three_stars = detail.three_stars or previous.three_stars
         self.details[detail.game.id] = detail
-        self._note_clock(detail.game)
+        self._note_clock(detail.game, age)
         # The detail feed is fresher than the scoreboard; reflect it there too.
         if detail.game.id in self.games:
             self.games[detail.game.id] = detail.game
@@ -76,15 +77,20 @@ class Store:
         self.players[player.id] = player
         self.touch(f"player:{player.id}")
 
-    def _note_clock(self, game: Game) -> None:
+    def _note_clock(self, game: Game, age: float = 0.0) -> None:
+        """Date a new clock reading to when it was true: ``age`` seconds before now.
+
+        The NHL's CDN serves snapshots up to ~19s old; treating a reading as
+        current when it arrives would put the countdown up to that far ahead.
+        """
         c = game.clock
         reading = (game.period, c.seconds_remaining, c.running, c.in_intermission) if c else ()
         seen = self._clock_seen.get(game.id)
         if seen is None or seen[0] != reading:
-            self._clock_seen[game.id] = (reading, datetime.now(timezone.utc))
+            self._clock_seen[game.id] = (reading, datetime.now(timezone.utc) - timedelta(seconds=age))
 
     def clock_as_of(self, game_id: int) -> datetime | None:
-        """When the game's current clock reading first arrived.
+        """When the game's current clock reading was true (first arrival minus its age).
 
         Re-fetching an unchanged reading must not move this forward, or a
         renderer counting down from it would stall and then jump.

@@ -4,7 +4,7 @@ A DIY LED scoreboard for live NHL stats. This repo is the **backend + renderer**
 
 ## Status (as of 2026-10-14)
 
-- **Done:** NHL client, parsers, event detection, scheduler, FastAPI API + WebSocket, browser preview with team picker, `displayteam` CLI, replay/demo system, 128×64 LED renderer (fonts + layouts), preview-page player swapping and Show now buttons, 107 passing tests.
+- **Done:** NHL client, parsers, event detection, scheduler, FastAPI API + WebSocket, browser preview with team picker, `displayteam` CLI, replay/demo system, 128×64 LED renderer (fonts + layouts), preview-page player swapping and Show now buttons, anti-spoiler delay, 113 passing tests.
 - **Not started:** the hardware output process on the Pi (see *Next steps*).
 
 ## Commands
@@ -41,7 +41,7 @@ NHL API -> nhl/client.py -> nhl/parsers.py -> nhl/models.py
 |---|---|
 | `nhl/client.py` | httpx client. Honors CDN `Cache-Control: max-age`; host-wide exponential backoff on 429/5xx/network errors (honors `Retry-After`, max 120s); returns last good data on failure. |
 | `nhl/parsers.py` | **The only code that touches raw NHL JSON.** Forgiving `.get` parsing. Fix API changes here. |
-| `services/poller.py` | asyncio loops: scoreboard (20s live / 60s pregame / 15min idle), favorite-game tracking (play-by-play every 5s + right-rail stats every 30s, starts 15 min before puck drop), slow refreshes (standings/leaders/players 1h, schedules 6h). `favorites_changed()` re-targets tracking. |
+| `services/poller.py` | asyncio loops: scoreboard (20s live / 60s pregame / 15min idle), favorite-game tracking (play-by-play every 2s + right-rail stats every 30s, starts 15 min before puck drop), slow refreshes (standings/leaders/players 1h, schedules 6h). `favorites_changed()` re-targets tracking. |
 | `services/events.py` | Diffs snapshots into goal / goal_overturned / penalty / period_start / period_end / game_final. First sighting of a game is silent (no alert flood on startup or mid-game team switch). |
 | `services/scheduler.py` | What's on screen: hand-picked "Show now" screens (`force()`) > alerts > live favorite game > rotation (next game, scoreboard pages, standings, leaders, player cards). Rotation resumes during intermissions. Standings slots are built per followed division/conference (`_standings_slots`). |
 | `views.py` | Builds `Screen` models. Each screen has `data` (structured), `spans` (tagged text), `lines` (plain text, derived from spans). |
@@ -52,16 +52,20 @@ NHL API -> nhl/client.py -> nhl/parsers.py -> nhl/models.py
 
 ## NHL API notes (unofficial, undocumented: `api-web.nhle.com/v1`)
 
-- `/score/now` 307-redirects to `/score/{date}`; the CDN caches it ~19s. Gamecenter endpoints (`play-by-play`, `landing`, `right-rail`) are `max-age=0`.
+- `/score/now` 307-redirects to `/score/{date}`; the CDN caches it ~19s. Gamecenter `play-by-play` was `max-age=0` but measured 2026-10-14 during MTL @ WSH it was `max-age=19` with `Age` cycling 0–18: the feed is a 19s snapshot. The client subtracts `Age` from `max-age` (refetch as soon as the CDN copy expires) and `client.age(path)` dates clock readings, so polling faster than ~2s gains nothing.
 - `play-by-play` has score, clock, `situation`, and all events. `right-rail` has team stats (SOG, faceoffs, PP, hits) in one small response. `landing` has three stars.
 - `situationCode` is 4 digits: away goalie, away skaters, home skaters, home goalie. **Pulled goalie = extra attacker, not a power play.** Official strength subtracts one skater for a pulled goalie (`Situation.away_strength`), which matches the NHL's own ev/pp/sh labels on all test goals.
 - The NHL removes an overturned goal's play from play-by-play; the detector emits `goal_overturned` when a seen goal id disappears.
 - For untracked games the scoreboard **score change** is authoritative (the goal list can lag).
-- Standings `wildcardSequence` is 0 for division leaders. No published rate limits; ~15 req/min during a favorite game is fine.
+- Standings `wildcardSequence` is 0 for division leaders. No published rate limits; ~35 req/min during a favorite game (play-by-play every 2s, plus right-rail and scoreboard).
+
+## Anti-spoiler delay
+
+`spoiler_delay_seconds` (default 15, 0–300) plus `spoiler_delay_enabled` (on/off button; off keeps the seconds), both settable on the preview page / `PUT /control/delay`, persisted in the state file). The poller fetches on time but queues each scoreboard / play-by-play snapshot (`Poller._deliver`) and applies it to the Store and the event detector only once it's that old, so clock, scores, alerts and finals all lag together and `clock_as_of` / `occurred_at` are stamped at release. Tracking decisions use the fresh data. Scaled by replay speed. Schedules after a final wait out the delay; Show now's goal/final alerts use the stored (delayed) detail for tracked games. New live-data paths must go through `_deliver` or they'll spoil.
 
 ## Live clock
 
-`data.clock` = `seconds_remaining`, `running`, `as_of`, `rate`. Renderers count down: `seconds_remaining - (now - as_of) * rate`. **`as_of` is when that clock reading first arrived** (`Store.clock_as_of`), not the fetch time, otherwise re-fetching an unchanged reading makes the countdown stall then jump. `rate` is 1 live and equals the replay speed in demos.
+`data.clock` = `seconds_remaining`, `running`, `as_of`, `rate`. Renderers count down: `seconds_remaining - (now - as_of) * rate`. **`as_of` is when that clock reading was true**: first arrival minus the snapshot's CDN age (`Store.clock_as_of`), not the fetch time. Re-fetching an unchanged reading must not move it (the countdown would stall then jump), and ignoring the age put the board up to 19s ahead, varying per snapshot. Clock stoppages still show up to one snapshot late (the board counts on, then snaps back). The user chose this smooth countdown (2026-10-14) over showing only the NHL's value or hiding the running clock; keep it. `rate` is 1 live and equals the replay speed in demos.
 
 ## Display decisions (made by the user; keep them unless asked)
 

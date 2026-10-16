@@ -40,6 +40,7 @@ def test_wildcard_screen_follows_nhl_format(standings):
 
 def _ids(config: Config, standings) -> list[str]:
     store = Store()
+    store.set_games([])  # the first scoreboard has landed: past the startup idle hold
     store.set_standings(standings)
     sched = Scheduler(store, config)
     ids, t = [], 0
@@ -114,6 +115,7 @@ def test_standings_arriving_after_startup_appear_in_the_first_cycle(fixture, sta
     """Regression: the rotation used to be expanded on the first tick, before data
     loaded, so standings were skipped for a whole cycle after startup."""
     store = Store()
+    store.set_games([])
     store.set_leaders({"points": parsers.parse_leaders(fixture("skater_leaders.json"))["points"]})
     config = Config(favorite_teams=["TOR"], favorite_players=[], display=DisplayConfig(rotation=[
         RotationEntry(screen="leaders", dwell=2),

@@ -5,7 +5,7 @@ import pytest
 from nhlscreen.config import Config, DisplayConfig, RotationEntry
 from nhlscreen.nhl import parsers
 from nhlscreen.nhl.models import Clock, GameEvent, GameState
-from nhlscreen.services.scheduler import Scheduler
+from nhlscreen.services.scheduler import WARMUP_MAX_SECONDS, Scheduler
 from nhlscreen.store import Store
 
 T0 = datetime(2026, 10, 14, 23, 30, tzinfo=timezone.utc)
@@ -223,8 +223,28 @@ def test_clock_as_of_only_moves_when_reading_changes(store, monkeypatch):
     assert store.clock_as_of(TOR_GAME) > first
 
 
+def test_idle_until_first_scoreboard_lands(store, fixture):
+    # Slow data (schedule, standings...) is in, but live data is still waiting out the
+    # spoiler delay: hold the idle screen rather than show a rotation that's out of date.
+    store.updated_at.pop("games")
+    store.games.clear()
+    sched = Scheduler(store, make_config())
+    assert sched.tick(T0).type == "idle"
+    assert sched.tick(T0 + timedelta(seconds=20)).type == "idle"
+    store.set_games(parsers.parse_score(fixture("score.json")))
+    assert sched.tick(T0 + timedelta(seconds=26)).type == "next_game"
+
+
+def test_idle_hold_gives_up_after_a_while(store):
+    store.updated_at.pop("games")
+    sched = Scheduler(store, make_config())
+    assert sched.tick(T0).type == "idle"
+    assert sched.tick(T0 + timedelta(seconds=WARMUP_MAX_SECONDS)).type == "next_game"
+
+
 def test_rotation_starts_from_the_top_after_idle(fixture):
     store = Store()
+    store.set_games([])
     sched = Scheduler(store, make_config(rotation=[RotationEntry(screen="next_game", dwell=5),
                                                    RotationEntry(screen="standings", dwell=5)]))
     assert sched.tick(T0).type == "idle"  # nothing loaded yet

@@ -45,6 +45,8 @@ Open **http://127.0.0.1:9134/** for a live preview of the board. The left column
 
 ## What the board shows
 
+On startup the board holds a plain idle screen (NHL + the time) until the first live data has waited out the 25s spoiler delay, so it never opens on out-of-date screens; it stops waiting after 90 seconds.
+
 Screens are chosen in priority order:
 
 1. **Alerts** for favorite-team goals, overturned goals and finals. Goal and no-goal alerts hold for `alert_seconds` (25s), finals for `final_alert_seconds` (60s). The NHL often posts a goal before its assists; a goal alert on screen fills them in (and any scorer correction) as they arrive. A player's third goal of the game is titled **HAT TRICK!** (in the scoring team's color) instead of TOR GOAL!. When the 1st or 2nd period ends (or the 3rd / an OT ends tied, so the game goes to OT or a shootout), an **intermission screen** holds for `intermission_alert_seconds` (20s): the live game layout with `INT` in place of the clock, the score, and SOG / PP / FO.

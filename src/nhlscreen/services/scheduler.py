@@ -21,6 +21,10 @@ from ..views import Screen
 
 # When several favorite teams are live at once, alternate between them.
 LIVE_ALTERNATE_SECONDS = 15.0
+# Live data reaches the Store only after the spoiler delay, so right after startup the
+# rotation would show whatever slow data came first (and miss a live game). Hold the
+# idle screen until the first scoreboard has landed, but never longer than this.
+WARMUP_MAX_SECONDS = 90.0
 
 
 class Scheduler:
@@ -51,6 +55,8 @@ class Scheduler:
         # Screens picked from the preview page; they play before anything else.
         self._forced: deque[Screen] = deque()
         self._forced_on = False
+        self._warm_since: datetime | None = None
+        self._warm = False
 
     def reset(self) -> None:
         """Forget the current screen, queued alerts and rotation (e.g. favorites changed)."""
@@ -122,6 +128,9 @@ class Scheduler:
             self._forced_on = False
             cur = self.current = None
 
+        if not self._warmed_up(now):
+            return self._show(views.idle_screen(now, tz), now, keep_start=cur is not None and cur.id == "idle")
+
         # 1. Alerts: let the current alert finish, then show the next queued one.
         if cur and cur.priority >= views.PRIORITY_ALERT and not self._expired(cur, now):
             return self._show(self._refresh_goal_alert(cur), now, keep_start=True)
@@ -177,6 +186,14 @@ class Scheduler:
     def _game_goals(self, game_id: int) -> list[Goal] | None:
         detail = self.store.details.get(game_id)
         return detail.game.goals if detail else None
+
+    def _warmed_up(self, now: datetime) -> bool:
+        if self._warm:
+            return True
+        if self._warm_since is None:
+            self._warm_since = now
+        self._warm = "games" in self.store.updated_at or (now - self._warm_since).total_seconds() >= WARMUP_MAX_SECONDS
+        return self._warm
 
     def _expired(self, screen: Screen, now: datetime) -> bool:
         return self._started_at is None or (now - self._started_at).total_seconds() >= screen.dwell_seconds

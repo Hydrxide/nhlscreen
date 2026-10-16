@@ -23,6 +23,7 @@ polling:
 display:
   alert_seconds: 25            # how long a goal alert holds the screen
   final_alert_seconds: 60
+  intermission_alert_seconds: 20   # score + SOG/PP/FO when the 1st or 2nd period ends
   rotate_during_intermission: true
   scoreboard_games_per_page: 4
   leaders_limit: 5

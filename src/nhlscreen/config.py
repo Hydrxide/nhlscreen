@@ -44,6 +44,8 @@ class RotationEntry(BaseModel):
 class DisplayConfig(BaseModel):
     alert_seconds: float = 25.0
     final_alert_seconds: float = 60.0
+    # End of the 1st and 2nd periods: score + team stats before the intermission rotation.
+    intermission_alert_seconds: float = 20.0
     rotate_during_intermission: bool = True
     # LED matrix size in pixels (layouts are designed for 128x64).
     matrix_width: int = Field(128, ge=32)

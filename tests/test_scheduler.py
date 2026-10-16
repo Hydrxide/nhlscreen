@@ -109,6 +109,47 @@ def test_intermission_rotates(store):
     assert Scheduler(store, make_config(rotate_during_intermission=False)).tick(T0).type == "live_game"
 
 
+def _period_end(period: int, period_type: str = "REG", score: tuple[int, int] = (1, 2)) -> GameEvent:
+    return GameEvent(kind="period_end", game_id=TOR_GAME, key=f"period_end:{TOR_GAME}:{period}", away_abbrev="TOR",
+                     home_abbrev="UTA", away_score=score[0], home_score=score[1], period=period,
+                     period_type=period_type, occurred_at=T0)
+
+
+def test_intermission_screen_after_first_and_second(store):
+    _go_live(store)  # clock still running: the period-end play can land before the feed flips to INT
+    store.games[TOR_GAME].away.sog, store.games[TOR_GAME].home.sog = 11, 9
+    sched = Scheduler(store, make_config())
+    sched.tick(T0)
+    sched.on_event(_period_end(2))
+    screen = sched.tick(T0 + timedelta(seconds=1))
+    assert screen.type == "intermission" and screen.dwell_seconds == 20
+    assert screen.data["period_label"] == "2nd" and screen.data["clock"]["in_intermission"]
+    assert screen.data["situation"]["power_play"] is None
+    assert screen.lines[0].startswith("TOR") and "SOG 11-9" in screen.lines
+    assert sched.tick(T0 + timedelta(seconds=20)).type == "intermission"
+    assert sched.tick(T0 + timedelta(seconds=22)).type != "intermission"
+
+
+def test_no_intermission_screen_after_decided_third_or_ot(store):
+    _go_live(store)
+    sched = Scheduler(store, make_config())
+    sched.tick(T0)
+    sched.on_event(_period_end(3))
+    sched.on_event(_period_end(4, "OT"))
+    sched.on_event(_period_end(5, "SO", (2, 2)))
+    assert sched.tick(T0 + timedelta(seconds=1)).type == "live_game"
+
+
+@pytest.mark.parametrize("period,period_type,label", [(3, "REG", "3rd"), (4, "OT", "OT")])
+def test_intermission_screen_when_tied_heading_to_ot_or_shootout(store, period, period_type, label):
+    _go_live(store)
+    sched = Scheduler(store, make_config())
+    sched.tick(T0)
+    sched.on_event(_period_end(period, period_type, (2, 2)))
+    screen = sched.tick(T0 + timedelta(seconds=1))
+    assert screen.type == "intermission" and screen.data["period_label"] == label
+
+
 def test_goal_alert_preempts_then_expires(store):
     _go_live(store)
     sched = Scheduler(store, make_config(alert_seconds=10))

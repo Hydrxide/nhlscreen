@@ -2,7 +2,7 @@
 
 Priority:
   0. screens picked by hand ("Show now" on the preview page), each for its dwell
-  1. alerts (favorite-team goal / overturned goal / final), each held for N seconds
+  1. alerts (favorite-team goal / overturned goal / end of 1st or 2nd / final), each held for N seconds
   2. a live favorite-team game (rotation resumes during intermissions if configured)
   3. the configured rotation (next game, scoreboard, standings, leaders, players)
 """
@@ -95,6 +95,15 @@ class Scheduler:
             game = self.store.game(event.game_id)
             detail = self.store.details.get(event.game_id)
             self._alerts.append(views.final_alert_screen(event, game, detail, d.final_alert_seconds))
+        elif event.kind == "period_end" and event.period and event.period_type != "SO":
+            # After the 1st and 2nd always; after the 3rd or an OT only if it's tied,
+            # i.e. the game goes on to (more) OT or a shootout.
+            game = self.store.game(event.game_id)
+            tied = (event.away_score or 0) == (event.home_score or 0)
+            if game is not None and not game.state.is_final and (event.period < 3 or tied):
+                detail = self.store.details.get(event.game_id)
+                self._alerts.append(views.intermission_screen(event, game, detail, self.config.tz,
+                                                              d.intermission_alert_seconds, self.clock()))
 
     # ------------------------------------------------------------------ main entry
 

@@ -484,6 +484,7 @@ def last_game_spans(last: dict[str, Any], max_width: int = 126) -> list[dict[str
 
 LAYOUTS: dict[str, Callable[[Canvas, ScreenDict, datetime], None]] = {
     "live_game": layout_live_game,
+    "intermission": layout_live_game,  # the live layout frozen at "1st" / "INT"
     "scoreboard": layout_scoreboard,
     "standings": layout_standings,
     "wildcard": layout_wildcard,

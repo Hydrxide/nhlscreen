@@ -27,6 +27,7 @@ from zoneinfo import ZoneInfo
 from pydantic import BaseModel, Field, model_validator
 
 from .nhl.models import (
+    Clock,
     Game,
     GameDetail,
     GameEvent,
@@ -44,6 +45,7 @@ ScreenType = Literal[
     "goal_alert",
     "goal_overturned",
     "final_alert",
+    "intermission",
     "live_game",
     "scoreboard",
     "standings",
@@ -359,6 +361,19 @@ def live_game_screen(
 
 
 # --------------------------------------------------------------------------- alerts
+
+
+def intermission_screen(event: GameEvent, game: Game, detail: GameDetail | None, tz: ZoneInfo, dwell: float,
+                        now: datetime) -> Screen:
+    """End of the 1st/2nd period: the live game layout frozen on "1st" / "INT" with the
+    score and team stats, held like an alert before the intermission rotation starts."""
+    period = event.period or game.period
+    clock = Clock(time_remaining="00:00", seconds_remaining=0, running=False, in_intermission=True)
+    frozen = game.model_copy(update={"clock": clock, "period": period, "period_type": event.period_type or "REG",
+                                     "situation": None})
+    live = live_game_screen(frozen, detail, tz, dwell, now)
+    return live.model_copy(update={"id": f"alert:{event.key}", "type": "intermission",
+                                   "priority": PRIORITY_ALERT})
 
 
 def scorer_game_goals(goal: Goal | None, game_goals: list[Goal] | None) -> int | None:

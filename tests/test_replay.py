@@ -28,6 +28,7 @@ async def test_replay_end_to_end(tmp_path):
     config = Config(favorite_teams=["TOR"], favorite_players=[8478483])
     config.display.alert_seconds = 0.05
     config.display.final_alert_seconds = 0.1
+    config.display.intermission_alert_seconds = 0.05
     runtime = Runtime(config, transport=transport, speed=speed, tick_seconds=0.02)
     await runtime.start()
     screen_types = set()
@@ -52,8 +53,8 @@ async def test_replay_end_to_end(tmp_path):
     assert (goals[-1].away_score, goals[-1].home_score) == (4, 5)
     assert kinds.count("game_final") == 1
     assert "penalty" in kinds and "period_end" in kinds
-    assert {"live_game", "goal_alert", "final_alert"} <= screen_types
-    assert runtime.screen.type not in {"live_game", "goal_alert", "final_alert"}  # back to rotation
+    assert {"live_game", "goal_alert", "intermission", "final_alert"} <= screen_types
+    assert runtime.screen.type not in {"live_game", "goal_alert", "intermission", "final_alert"}  # back to rotation
 
 
 def test_synthetic_clock_flows_evenly(tmp_path):

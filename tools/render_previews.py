@@ -68,6 +68,9 @@ def build_screens(fixtures: Path) -> dict[str, views.Screen]:
             detail.game.goals[-1].model_copy(update={"event_id": -1}),
             detail.game.goals[-1].model_copy(update={"event_id": -2}), detail.game.goals[-1]]),
         "final_alert": views.final_alert_screen(final, detail.game, detail, 20),
+        "intermission": views.intermission_screen(
+            GameEvent(kind="period_end", game_id=live.id, key="p", away_abbrev="TOR", home_abbrev="UTA",
+                      period=live.period, period_type="REG", occurred_at=NOW), live, detail, TZ, 20, NOW),
         "goal_overturned": views.overturned_screen(final, 15),
         "scoreboard": views.scoreboard_screens(page, 4, TZ, 8)[0],
         "standings_division": views.standings_screen(standings, "TOR", "division", None, 10),

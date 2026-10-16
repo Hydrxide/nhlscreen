@@ -21,8 +21,8 @@ polling:
   players_seconds: 3600
 
 display:
-  alert_seconds: 15            # how long a goal alert holds the screen
-  final_alert_seconds: 20
+  alert_seconds: 25            # how long a goal alert holds the screen
+  final_alert_seconds: 60
   rotate_during_intermission: true
   scoreboard_games_per_page: 4
   leaders_limit: 5

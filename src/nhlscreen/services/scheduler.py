@@ -39,6 +39,9 @@ class Scheduler:
         self.current: Screen | None = None
         self._started_at: datetime | None = None
         self._alerts: deque[Screen] = deque()
+        # Goal alerts' events by screen id, so a shown alert can pick up assists
+        # the NHL adds after the goal is first posted.
+        self._goal_events: dict[str, GameEvent] = {}
         # Rotation position: which rotation entry, and which of its slots. Entries
         # are expanded into slots when reached, so data that arrives after
         # startup (standings, games) is never skipped for a whole cycle.
@@ -54,6 +57,7 @@ class Scheduler:
         self.current = None
         self._started_at = None
         self._alerts.clear()
+        self._goal_events.clear()
         self._entry, self._slot, self._builder = 0, -1, None
         self._forced.clear()
         self._forced_on = False
@@ -62,6 +66,7 @@ class Scheduler:
         """Clear the queue and play ``screens`` next, each for its dwell; then the
         rotation starts over from the top. Queued alerts are dropped."""
         self._alerts.clear()
+        self._goal_events.clear()
         self._forced = deque(screens)
         self._entry, self._slot, self._builder = 0, -1, None
         self.current, self._started_at, self._forced_on = None, None, False
@@ -78,7 +83,9 @@ class Scheduler:
             return
         d = self.config.display
         if event.kind == "goal":
-            self._alerts.append(views.goal_alert_screen(event, d.alert_seconds))
+            screen = views.goal_alert_screen(event, d.alert_seconds)
+            self._goal_events[screen.id] = event
+            self._alerts.append(screen)
         elif event.kind == "goal_overturned":
             # Drop a still-queued alert for the goal that was just taken back.
             self._alerts = deque(a for a in self._alerts if a.data.get("game_id") != event.game_id
@@ -108,9 +115,12 @@ class Scheduler:
 
         # 1. Alerts: let the current alert finish, then show the next queued one.
         if cur and cur.priority >= views.PRIORITY_ALERT and not self._expired(cur, now):
-            return cur
+            return self._show(self._refresh_goal_alert(cur), now, keep_start=True)
         if self._alerts:
-            return self._show(self._alerts.popleft(), now)
+            screen = self._alerts.popleft()
+            queued = {a.id for a in self._alerts} | {screen.id}
+            self._goal_events = {k: v for k, v in self._goal_events.items() if k in queued}
+            return self._show(self._refresh_goal_alert(screen), now)
 
         # 2. Live favorite game.
         live = self._live_favorite_games()
@@ -140,6 +150,20 @@ class Scheduler:
             self._started_at = now
         self.current = screen
         return screen
+
+    def _refresh_goal_alert(self, screen: Screen) -> Screen:
+        """Rebuild a goal alert from the latest (delayed) play-by-play: assists, and
+        sometimes the scorer, are filled in after the goal first appears."""
+        event = self._goal_events.get(screen.id)
+        if event is None or event.goal is None or event.goal.event_id is None:
+            return screen
+        detail = self.store.details.get(event.game_id)
+        fresh = next((g for g in detail.game.goals if g.event_id == event.goal.event_id), None) if detail else None
+        if fresh is None or fresh == event.goal:
+            return screen
+        event = event.model_copy(update={"goal": fresh})
+        self._goal_events[screen.id] = event
+        return views.goal_alert_screen(event, screen.dwell_seconds)
 
     def _expired(self, screen: Screen, now: datetime) -> bool:
         return self._started_at is None or (now - self._started_at).total_seconds() >= screen.dwell_seconds

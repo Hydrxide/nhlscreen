@@ -84,7 +84,7 @@ The feed is coarse: a new reading every ~20s, and a CDN copy labelled age 0 can 
 
 **Home/away rule:** only for *live game info*: the live game screen and goal / no-goal alerts' score line. Home = its color, away = **white** (jersey convention). Scoreboard pages, final alert, standings, leaders, etc. use each team's own color, even if two teams look alike.
 
-**Goal alert:** the whole `TEAM GOAL!` banner is the scoring team's own color (home or away), then a **white divider line**, then scorer (season total in gold, PPG/SHG tag), assists, score line.
+**Goal alert:** the whole `TEAM GOAL!` banner is the scoring team's own color (home or away), then a **white divider line**, then scorer (season total in gold, PPG/SHG tag), assists, score line. Holds 25s (`alert_seconds`); finals hold 60s (`final_alert_seconds`), user's choice 2026-10-15. Assists often land after the goal, so while a goal alert is queued or shown the scheduler rebuilds it from the stored (delayed) play-by-play goal with the same event id (`Scheduler._refresh_goal_alert`), keeping its timer. The feed has no "unassisted" flag: no assist fields just means none yet.
 
 **Live game layout (128×64):** team codes 2×, scores 3×, period above a 2× clock between the scores (clock drops to 1× if two-digit scores would crowd it), PP/EN line under the clock, two-color divider at y=42, SOG row, then up to two small-font stat rows (PP, FO).
 

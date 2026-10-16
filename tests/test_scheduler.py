@@ -120,6 +120,26 @@ def test_goal_alert_preempts_then_expires(store):
     assert sched.tick(T0 + timedelta(seconds=11)).type == "live_game"
 
 
+def test_goal_alert_picks_up_late_assists(store, fixture):
+    # The NHL often posts a goal first and adds its assists a little later.
+    detail = parsers.parse_play_by_play(fixture("pbp_final.json"))
+    goal = next(g for g in detail.game.goals if g.team_abbrev == "TOR")
+    ev = goal_event()
+    ev.goal = goal.model_copy(update={"assists": []})
+    sched = Scheduler(store, make_config(alert_seconds=25))
+    sched.on_event(ev)
+    alert = sched.tick(T0)
+    assert alert.data["assists"] == [] and not any(l.startswith("A:") for l in alert.lines)
+
+    store.set_detail(detail)
+    alert = sched.tick(T0 + timedelta(seconds=5))
+    assert alert.type == "goal_alert" and alert.data["assists"] == ["J. Tavares"]
+    assert "A: J. Tavares" in alert.lines
+    # Still the same alert on the same timer: it ends 25s after it started.
+    assert sched.tick(T0 + timedelta(seconds=24)).type == "goal_alert"
+    assert sched.tick(T0 + timedelta(seconds=25)).type != "goal_alert"
+
+
 def test_non_favorite_goal_is_ignored(store):
     sched = Scheduler(store, make_config())
     sched.on_event(goal_event(team="EDM", game_id=1, away="EDM", home="LAK"))

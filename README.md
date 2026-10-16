@@ -47,7 +47,7 @@ Open **http://127.0.0.1:9134/** for a live preview of the board. The left column
 
 Screens are chosen in priority order:
 
-1. **Alerts** for favorite-team goals, overturned goals and finals. Each holds for `alert_seconds`.
+1. **Alerts** for favorite-team goals, overturned goals and finals. Goal and no-goal alerts hold for `alert_seconds` (25s), finals for `final_alert_seconds` (60s). The NHL often posts a goal before its assists; a goal alert on screen fills them in (and any scorer correction) as they arrive.
 2. **Live game** whenever a favorite team is playing. The rotation resumes during intermissions (configurable).
 3. **Rotation**: next game and last result, the league scoreboard (paged), standings, stat leaders, and favorite player cards. Standings come in three kinds, each a separate rotation entry in `config.yaml`:
    - **Division:** only divisions that contain a followed team.

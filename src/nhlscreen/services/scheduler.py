@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from typing import Callable
 
 from ..config import Config, RotationEntry
-from ..nhl.models import Game, GameEvent
+from ..nhl.models import Game, GameEvent, Goal
 from ..store import Store
 from .. import views
 from ..views import Screen
@@ -83,7 +83,7 @@ class Scheduler:
             return
         d = self.config.display
         if event.kind == "goal":
-            screen = views.goal_alert_screen(event, d.alert_seconds)
+            screen = views.goal_alert_screen(event, d.alert_seconds, self._game_goals(event.game_id))
             self._goal_events[screen.id] = event
             self._alerts.append(screen)
         elif event.kind == "goal_overturned":
@@ -163,7 +163,11 @@ class Scheduler:
             return screen
         event = event.model_copy(update={"goal": fresh})
         self._goal_events[screen.id] = event
-        return views.goal_alert_screen(event, screen.dwell_seconds)
+        return views.goal_alert_screen(event, screen.dwell_seconds, detail.game.goals)
+
+    def _game_goals(self, game_id: int) -> list[Goal] | None:
+        detail = self.store.details.get(game_id)
+        return detail.game.goals if detail else None
 
     def _expired(self, screen: Screen, now: datetime) -> bool:
         return self._started_at is None or (now - self._started_at).total_seconds() >= screen.dwell_seconds

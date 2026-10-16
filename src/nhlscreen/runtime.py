@@ -296,7 +296,7 @@ class Runtime:
             event = GameEvent(kind="goal", key=f"preview:{game.id}:{goal.event_id}", team_abbrev=goal.team_abbrev,
                               away_score=goal.away_score, home_score=goal.home_score, period=goal.period,
                               period_type=goal.period_type, goal=goal, **base)
-            return views.goal_alert_screen(event, d.alert_seconds)
+            return views.goal_alert_screen(event, d.alert_seconds, game.goals)
         if not detail.three_stars:
             try:
                 detail = detail.model_copy(update={

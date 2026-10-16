@@ -64,6 +64,9 @@ def build_screens(fixtures: Path) -> dict[str, views.Screen]:
         "live_intermission": views.live_game_screen(intermission, None, TZ, 15, NOW),
         "goal_alert": views.goal_alert_screen(goal_event(detail.game.goals[3]), 15),  # Matthews PPG
         "goal_alert_two_assists": views.goal_alert_screen(goal_event(detail.game.goals[-1]), 15),
+        "goal_alert_hat_trick": views.goal_alert_screen(goal_event(detail.game.goals[-1]), 15, [
+            detail.game.goals[-1].model_copy(update={"event_id": -1}),
+            detail.game.goals[-1].model_copy(update={"event_id": -2}), detail.game.goals[-1]]),
         "final_alert": views.final_alert_screen(final, detail.game, detail, 20),
         "goal_overturned": views.overturned_screen(final, 15),
         "scoreboard": views.scoreboard_screens(page, 4, TZ, 8)[0],

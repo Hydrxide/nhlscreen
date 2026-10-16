@@ -96,6 +96,28 @@ def test_goal_alert_player_names_use_team_color_even_when_away():
     assert screen.lines[1] == "A. Matthews (5) PPG" and screen.lines[2] == "A: J. Tavares, W. Nylander"
 
 
+def test_hat_trick_alert_title_on_third_goal_only():
+    def goal(eid, scorer, n):
+        return Goal(event_id=eid, period=1, time_in_period="05:00", team_abbrev="TOR", scorer_id=scorer,
+                    scorer_name="A. Matthews" if scorer == 1 else "W. Nylander", scorer_season_total=n,
+                    assists=["J. Tavares"], strength="ev", away_score=eid, home_score=0)
+    goals = [goal(1, 1, 1), goal(2, 2, 1), goal(3, 1, 2), goal(4, 1, 3), goal(5, 1, 4)]
+
+    def alert(g):
+        event = GameEvent(kind="goal", game_id=1, key=f"g{g.event_id}", team_abbrev="TOR", away_abbrev="TOR",
+                          home_abbrev="UTA", away_score=g.away_score, home_score=0, goal=g, occurred_at=NOW)
+        return views.goal_alert_screen(event, 25, goals)
+
+    assert [alert(g).lines[0] for g in goals] == ["TOR GOAL!", "TOR GOAL!", "TOR GOAL!", "TOR HAT TRICK!", "TOR GOAL!"]
+    hat = alert(goals[3])
+    assert hat.data["hat_trick"] and hat.lines[1:3] == ["A. Matthews (3)", "A: J. Tavares"]
+    assert {s["color"] for s in hat.spans[0]} == {get_team("TOR").display}
+    # Without the game's goal list (scoreboard-only goals) it stays a plain goal alert.
+    event = GameEvent(kind="goal", game_id=1, key="g", team_abbrev="TOR", away_abbrev="TOR", home_abbrev="UTA",
+                      away_score=4, home_score=0, goal=goals[3], occurred_at=NOW)
+    assert views.goal_alert_screen(event, 25).lines[0] == "TOR GOAL!"
+
+
 def test_player_card_and_final_star_names(fixture):
     card = views.player_card_screen(parsers.parse_player(fixture("player_8478483.json")), 8)
     assert kinds(card.spans[0]) == [("label", "#93"), ("player", "Mitch Marner")]

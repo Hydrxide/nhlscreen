@@ -31,6 +31,7 @@ from .nhl.models import (
     GameDetail,
     GameEvent,
     GameState,
+    Goal,
     LeaderEntry,
     PlayerSummary,
     ScheduledGame,
@@ -360,10 +361,24 @@ def live_game_screen(
 # --------------------------------------------------------------------------- alerts
 
 
-def goal_alert_screen(event: GameEvent, dwell: float) -> Screen:
+def scorer_game_goals(goal: Goal | None, game_goals: list[Goal] | None) -> int | None:
+    """How many goals the scorer had in this game up to and including ``goal``
+    (None if the goal isn't in the list, e.g. scoreboard-only goals)."""
+    if goal is None or goal.scorer_id is None or goal.event_id is None or not game_goals:
+        return None
+    ids = [g.event_id for g in game_goals]
+    if goal.event_id not in ids:
+        return None
+    upto = game_goals[: ids.index(goal.event_id) + 1]
+    return sum(1 for g in upto if g.scorer_id == goal.scorer_id)
+
+
+def goal_alert_screen(event: GameEvent, dwell: float, game_goals: list[Goal] | None = None) -> Screen:
+    """``game_goals``: the game's goals in order, to spot a hat trick (the scorer's third)."""
     goal = event.goal
     team = event.team_abbrev or "???"
     plabel = period_label(event.period, event.period_type)
+    hat_trick = scorer_game_goals(goal, game_goals) == 3
     data = {
         "game_id": event.game_id,
         "team": team_view(team),  # the banner uses the team's own color, home or away
@@ -376,9 +391,11 @@ def goal_alert_screen(event: GameEvent, dwell: float) -> Screen:
         "modifier": goal.modifier if goal else None,
         "time_in_period": goal.time_in_period if goal else None,
         "period_label": period_label(goal.period, goal.period_type) if goal else plabel,
+        "hat_trick": hat_trick,
     }
-    # The whole "TOR GOAL!" banner is in the scoring team's own color, always.
-    spans = [line(team_span(team), colored(" GOAL!", get_team(team).display))]
+    # The whole "TOR GOAL!" (or "TOR HAT TRICK!") banner is in the scoring team's own color, always.
+    title = " HAT TRICK!" if hat_trick else " GOAL!"
+    spans = [line(team_span(team), colored(title, get_team(team).display))]
     if goal:
         scorer = line(player_span(goal.scorer_name, team))
         if goal.scorer_season_total:

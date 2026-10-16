@@ -108,7 +108,7 @@ def test_hat_trick_alert_title_on_third_goal_only():
                           home_abbrev="UTA", away_score=g.away_score, home_score=0, goal=g, occurred_at=NOW)
         return views.goal_alert_screen(event, 25, goals)
 
-    assert [alert(g).lines[0] for g in goals] == ["TOR GOAL!", "TOR GOAL!", "TOR GOAL!", "TOR HAT TRICK!", "TOR GOAL!"]
+    assert [alert(g).lines[0] for g in goals] == ["TOR GOAL!", "TOR GOAL!", "TOR GOAL!", "HAT TRICK!", "TOR GOAL!"]
     hat = alert(goals[3])
     assert hat.data["hat_trick"] and hat.lines[1:3] == ["A. Matthews (3)", "A: J. Tavares"]
     assert {s["color"] for s in hat.spans[0]} == {get_team("TOR").display}

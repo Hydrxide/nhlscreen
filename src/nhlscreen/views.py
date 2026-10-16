@@ -393,9 +393,12 @@ def goal_alert_screen(event: GameEvent, dwell: float, game_goals: list[Goal] | N
         "period_label": period_label(goal.period, goal.period_type) if goal else plabel,
         "hat_trick": hat_trick,
     }
-    # The whole "TOR GOAL!" (or "TOR HAT TRICK!") banner is in the scoring team's own color, always.
-    title = " HAT TRICK!" if hat_trick else " GOAL!"
-    spans = [line(team_span(team), colored(title, get_team(team).display))]
+    # The whole "TOR GOAL!" banner is in the scoring team's own color, always. A hat
+    # trick drops the code ("HAT TRICK!" fits 2x only alone); the color still says who.
+    if hat_trick:
+        spans = [line(colored("HAT TRICK!", get_team(team).display))]
+    else:
+        spans = [line(team_span(team), colored(" GOAL!", get_team(team).display))]
     if goal:
         scorer = line(player_span(goal.scorer_name, team))
         if goal.scorer_season_total:

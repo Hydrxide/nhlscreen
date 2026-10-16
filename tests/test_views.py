@@ -118,6 +118,18 @@ def test_hat_trick_alert_title_on_third_goal_only():
     assert views.goal_alert_screen(event, 25).lines[0] == "TOR GOAL!"
 
 
+def test_goalie_goal_banner():
+    goal = Goal(event_id=9, period=3, time_in_period="19:40", team_abbrev="TOR", scorer_id=5, scorer_name="J. Woll",
+                scorer_season_total=1, strength="ev", away_score=4, home_score=2, scorer_is_goalie=True)
+    event = GameEvent(kind="goal", game_id=1, key="g", team_abbrev="TOR", away_abbrev="TOR", home_abbrev="UTA",
+                      away_score=4, home_score=2, goal=goal, occurred_at=NOW)
+    screen = views.goal_alert_screen(event, 25, [goal])
+    assert screen.lines[:2] == ["GOALIE GOAL!", "J. Woll (1)"] and screen.data["goalie_goal"]
+    assert {s["color"] for s in screen.spans[0]} == {get_team("TOR").display}
+    skater = event.model_copy(update={"goal": goal.model_copy(update={"scorer_is_goalie": False})})
+    assert views.goal_alert_screen(skater, 25).lines[0] == "TOR GOAL!"
+
+
 def test_player_card_and_final_star_names(fixture):
     card = views.player_card_screen(parsers.parse_player(fixture("player_8478483.json")), 8)
     assert kinds(card.spans[0]) == [("label", "#93"), ("player", "Mitch Marner")]

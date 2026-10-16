@@ -64,6 +64,9 @@ def build_screens(fixtures: Path) -> dict[str, views.Screen]:
         "live_intermission": views.live_game_screen(intermission, None, TZ, 15, NOW),
         "goal_alert": views.goal_alert_screen(goal_event(detail.game.goals[3]), 15),  # Matthews PPG
         "goal_alert_two_assists": views.goal_alert_screen(goal_event(detail.game.goals[-1]), 15),
+        "goal_alert_goalie": views.goal_alert_screen(goal_event(detail.game.goals[3].model_copy(
+            update={"scorer_name": "J. Woll", "scorer_season_total": 1, "scorer_is_goalie": True,
+                    "assists": [], "strength": "ev", "modifier": None})), 15),
         "goal_alert_hat_trick": views.goal_alert_screen(goal_event(detail.game.goals[-1]), 15, [
             detail.game.goals[-1].model_copy(update={"event_id": -1}),
             detail.game.goals[-1].model_copy(update={"event_id": -2}), detail.game.goals[-1]]),

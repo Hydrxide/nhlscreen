@@ -28,6 +28,16 @@ def test_parse_play_by_play_goals_match_official_strength(fixture):
     assert [(g.away_score, g.home_score) for g in detail.game.goals][-1] == (4, 5)
 
 
+def test_goalie_scorer_is_flagged_from_roster(fixture):
+    data = fixture("pbp_final.json")
+    assert not any(g.scorer_is_goalie for g in parsers.parse_play_by_play(data).game.goals)
+    goal = next(p for p in data["plays"] if p["typeDescKey"] == "goal")
+    goalie = next(r for r in data["rosterSpots"] if r["positionCode"] == "G")
+    goal["details"]["scoringPlayerId"] = goalie["playerId"]
+    first = parsers.parse_play_by_play(data).game.goals[0]
+    assert first.scorer_is_goalie and first.scorer_id == goalie["playerId"]
+
+
 def test_parse_play_by_play_penalties_and_plays(fixture):
     detail = parsers.parse_play_by_play(fixture("pbp_final.json"))
     assert len(detail.penalties) == 9

@@ -177,6 +177,7 @@ def parse_play_by_play(data: JSON) -> GameDetail:
         r.get("playerId"): f"{_text(r.get('firstName'))[:1]}. {_text(r.get('lastName'))}".strip()
         for r in data.get("rosterSpots") or []
     }
+    goalies = {r.get("playerId") for r in data.get("rosterSpots") or [] if r.get("positionCode") == "G"}
 
     plays: list[Play] = []
     goals: list[Goal] = []
@@ -216,6 +217,7 @@ def parse_play_by_play(data: JSON) -> GameDetail:
                     modifier=None if opp_goalie_in else "empty-net",
                     away_score=d.get("awayScore", 0),
                     home_score=d.get("homeScore", 0),
+                    scorer_is_goalie=d.get("scoringPlayerId") in goalies,
                 )
             )
         elif play.type == "penalty":

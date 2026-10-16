@@ -104,6 +104,7 @@ class Goal(BaseModel):
     modifier: str | None = None  # e.g. "empty-net"
     away_score: int
     home_score: int
+    scorer_is_goalie: bool = False  # from play-by-play rosterSpots (positionCode "G")
 
 
 class Penalty(BaseModel):

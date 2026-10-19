@@ -5,7 +5,7 @@ A DIY LED scoreboard for live NHL stats. This repo is the **backend + renderer**
 ## Status (as of 2026-10-15)
 
 - **Done:** NHL client, parsers, event detection, scheduler, FastAPI API + WebSocket, browser preview with team picker, `displayteam` CLI, replay/demo system, 128×64 LED renderer (fonts + layouts), preview-page player swapping and Show now buttons, fixed 25s anti-spoiler delay with a planned (jump-free) live clock, 135 passing tests.
-- **Not started:** the hardware output process on the Pi (see *Next steps*).
+- **Moved to HController** (`~/HController`, 2026-10-19): the hardware output process. HController supervises nhlscreen as a module and owns the LED panel (see *Next steps* 1).
 
 ## Commands
 
@@ -110,6 +110,6 @@ The feed is coarse: a new reading every ~20s, and a CDN copy labelled age 0 can 
 
 ## Next steps
 
-1. **Pi matrix output:** a separate process (needs root for GPIO) that subscribes to `ws://localhost:9134/events`, keeps the current screen, calls `render()` at ~10 fps, and pushes frames with `rpi-rgb-led-matrix` (`SetImage`/canvas, `--led-rows=64 --led-cols=64 --led-chain=2`). Blacklist `snd_bcm2835` (the library refuses to run with onboard audio) and consider `isolcpus=3`. Add a systemd unit next to `deploy/nhlscreen.service`.
+1. **Pi matrix output: lives in HController now** (`~/HController`; the user decided the panel is shared by several apps). HController runs nhlscreen as a child process, pulls `GET /render/frame` at 10 fps whenever its schedule puts nhlscreen on the panel, and its `hcontroller-panel` (root, rpi-rgb-led-matrix) draws the frames. Keep `/render/frame` (raw RGB + `X-Width`/`X-Height`) and `/health` stable: they're HController's module contract. On the Pi, `nhlscreen.service` stays disabled; HController starts nhlscreen.
 2. Tune colors/brightness on the real panel (blue is the dimmest color on black; `MIN_BRIGHTNESS` and `LED_OVERRIDES` in `static/teams.py`).
 3. Ideas raised but not built: show the last goal on the live screen when team stats are missing; drop the team code on the leaders screen if name + code run together on the panel.

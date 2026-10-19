@@ -198,6 +198,8 @@ Working on this with Claude Code? `CLAUDE.md` has the architecture, the display 
 
 ## Raspberry Pi
 
+On the Pi, nhlscreen normally runs under [HController](https://github.com/Hydrxide/HController), which starts it, restarts it if it crashes, and owns the LED panel: HController's schedule decides when nhlscreen's frames (`GET /render/frame`) are on the panel, and its `hcontroller-panel` driver draws them. Set nhlscreen up as below, but don't enable `nhlscreen.service`; register it in HController's `hcontroller.yaml` instead. The unit is for running nhlscreen on its own.
+
 ```bash
 git clone <this repo> ~/nhlscreen && cd ~/nhlscreen
 python3 -m venv .venv && .venv/bin/pip install -e .
@@ -206,7 +208,7 @@ sudo cp deploy/nhlscreen.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now nhlscreen
 ```
 
-The backend runs as a normal user. The future LED renderer, which needs root for `rpi-rgb-led-matrix`, runs as its own process and talks to this one over `localhost:9134`.
+The backend runs as a normal user. The LED driver, which needs root for `rpi-rgb-led-matrix`, is part of HController (`hcontroller-panel`), so the panel can be shared with other apps.
 
 ## Layout
 

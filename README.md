@@ -198,12 +198,17 @@ Working on this with Claude Code? `CLAUDE.md` has the architecture, the display 
 
 ## Raspberry Pi
 
-On the Pi, nhlscreen normally runs under [HController](https://github.com/Hydrxide/HController), which starts it, restarts it if it crashes, and owns the LED panel: HController's schedule decides when nhlscreen's frames (`GET /render/frame`) are on the panel, and its `hcontroller-panel` driver draws them. Set nhlscreen up as below, but don't enable `nhlscreen.service`; register it in HController's `hcontroller.yaml` instead. The unit is for running nhlscreen on its own.
+On the Pi, nhlscreen normally runs under [HController](https://github.com/Hydrxide/HController), which starts it, restarts it if it crashes, and owns the LED panel: HController's schedule decides when nhlscreen's frames (`GET /render/frame`) are on the panel, and its `hcontroller-panel` driver draws them. **[docs/hcontroller.md](docs/hcontroller.md)** has the module setup to copy into HController's `hcontroller.yaml`, with each setting explained.
 
 ```bash
 git clone <this repo> ~/nhlscreen && cd ~/nhlscreen
 python3 -m venv .venv && .venv/bin/pip install -e .
 cp config.example.yaml config.yaml
+```
+
+To run nhlscreen on its own instead, without HController, install its unit. Don't install it when HController runs nhlscreen: two copies would compete for port 9134, and HController would report a conflict.
+
+```bash
 sudo cp deploy/nhlscreen.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now nhlscreen
 ```
@@ -226,5 +231,6 @@ src/nhlscreen/
   api/app.py         FastAPI + /debug page
   replay.py          replay transport
 tools/               record_game.py, synth_replay.py, render_previews.py
+docs/hcontroller.md  running nhlscreen as an HController module
 tests/fixtures/      real API responses (2026-10-13, TOR @ UTA)
 ```

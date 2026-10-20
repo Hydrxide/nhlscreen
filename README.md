@@ -1,5 +1,7 @@
 # nhlscreen
 
+> This project is not actively maintained, and was created with AI assistance for personal use.
+
 A DIY NHL scoreboard for a 128 × 64 LED panel. It follows your teams through the NHL's public web API and shows their live games (score, clock, power plays, shots), goal alerts with the scorer and assists, final scores, the league scoreboard, standings, stat leaders and player cards.
 
 It runs on a Mac, a Linux PC, a Windows PC or a Raspberry Pi. A **browser preview** shows exactly what the panel shows, so you don't need any LED hardware to use it. On the Pi with the panel, [HController](https://github.com/Hydrxide/HController) runs nhlscreen and puts it on the panel; see [Put it on the LED panel](#put-it-on-the-led-panel).

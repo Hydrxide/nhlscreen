@@ -6,7 +6,7 @@ It runs on a Mac, a Linux PC, a Windows PC or a Raspberry Pi. A **browser previe
 
 This README is a setup guide. How it works inside, the API and the screen format are in [docs/reference.md](docs/reference.md).
 
-**Contents:** [What you need](#what-you-need) · [1. Install](#1-install) · [2. Run it](#2-run-it) · [3. Pick your teams and players](#3-pick-your-teams-and-players) · [Open it from your phone](#open-it-from-your-phone) · [Put it on the LED panel](#put-it-on-the-led-panel) · [Start it at boot without HController (Linux)](#start-it-at-boot-without-hcontroller-linux) · [What the board shows](#what-the-board-shows) · [Troubleshooting](#troubleshooting) · [For developers](#for-developers)
+**Contents:** [What you need](#what-you-need) · [1. Install](#1-install) · [2. Run it](#2-run-it) · [3. Pick your teams and players](#3-pick-your-teams-and-players) · [Open it from your phone](#open-it-from-your-phone) · [Put it on the LED panel](#put-it-on-the-led-panel) · [Start it at boot without HController (Linux)](#start-it-at-boot-without-hcontroller-linux) · [What the board shows](#what-the-board-shows) · [Troubleshooting](#troubleshooting) · [For developers](#for-developers) · [License](#license)
 
 ## What you need
 
@@ -236,3 +236,9 @@ Replay mode feeds recorded responses through the real client, poller, detector a
 - **[docs/reference.md](docs/reference.md):** the architecture, the screen format, colors, the live clock, the LED renderer, the API, polling and rate limits, and the code layout.
 - **[docs/hcontroller.md](docs/hcontroller.md):** running under HController, and what HController relies on.
 - **`CLAUDE.md`:** working on this with Claude Code: the display decisions made so far, and next steps.
+
+## License
+
+MIT; see [LICENSE](LICENSE).
+
+nhlscreen is a fan project. It isn't affiliated with or endorsed by the NHL or its teams; NHL and the team names are trademarks of their owners. Game data comes from the NHL's public web API, which is unofficial and undocumented, and the test fixtures are responses recorded from it.

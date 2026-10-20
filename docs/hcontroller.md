@@ -2,44 +2,51 @@
 
 [HController](https://github.com/Hydrxide/HController) is the hub that runs nhlscreen, restarts it if it crashes, and owns the LED panel. Its schedule decides when nhlscreen's frames are on the panel, and other apps can share the panel at other times. nhlscreen needs no code changes for this; it already meets HController's module contract.
 
-This page covers:
-- the setup to copy into HController's `hcontroller.yaml`, with each setting explained;
-- the nhlscreen settings that have to agree with it;
-- the variants: demo mode, running only during set hours, and running nhlscreen on another device.
+This page is the setup, step by step, for a Raspberry Pi with the panel, or a Mac, Linux PC or Windows PC for trying it out (with HController's dashboard preview in place of the panel). Then it covers what each setting does, the settings that must agree between the two, and some variants: demo mode, running only during set hours, and nhlscreen on another device.
 
 HController's own [docs/modules.md](https://github.com/Hydrxide/HController/blob/main/docs/modules.md) has the general contract for any module.
 
-## What HController uses
-
-| nhlscreen provides | HController uses it for |
-|---|---|
-| `GET /health` | health status. It answers 200 whenever the server is up (see [Health](#health)). |
-| `GET /render/frame` | the panel's frames: 128 × 64 raw RGB with `X-Width` / `X-Height`, fetched 10 times a second while nhlscreen is on the panel |
-| `/` (the preview page) | the **Open** link on nhlscreen's dashboard card |
-| `config.yaml`, `config.example.yaml` | the dashboard's config editor |
-| its output | the dashboard's **Logs** view, and journald on the Pi |
-
 ## Setup
 
-Install nhlscreen once, on the same machine as HController:
+### 1. Install HController
+
+Follow HController's README through its step 3, "Start it", so its dashboard opens at `http://<machine>:1630/`.
+
+### 2. Install nhlscreen next to it
+
+On the same machine, in your home folder, so it ends up at `~/nhlscreen` beside `~/HController`. This is the same as [the README's install step](../README.md#1-install), except that `config.yaml` is optional here.
+
+**macOS, Linux and the Pi:**
 
 ```bash
-git clone https://github.com/Hydrxide/nhlscreen.git ~/nhlscreen && cd ~/nhlscreen
-python3 -m venv .venv && .venv/bin/pip install -e .
-cp config.example.yaml config.yaml    # optional: see below
+cd ~
+git clone https://github.com/Hydrxide/nhlscreen.git
+cd nhlscreen
+python3 -m venv .venv
+.venv/bin/pip install -e .
 ```
 
-`config.yaml` is optional. Without it, nhlscreen runs on its defaults, and HController's config editor shows `config.example.yaml` until you save, which creates `config.yaml`.
+**Windows (PowerShell):**
 
-If `nhlscreen.service` was ever installed on this machine, turn it off. HController starts nhlscreen itself, and reports a **conflict** if another copy is already using port 9134:
+```powershell
+cd ~
+git clone https://github.com/Hydrxide/nhlscreen.git
+cd nhlscreen
+py -m venv .venv
+.venv\Scripts\pip install -e .
+```
+
+Without a `config.yaml`, nhlscreen runs on its defaults, and HController's config editor shows `config.example.yaml` until you save, which creates `config.yaml`. So you can set your teams from the dashboard later.
+
+**Stop any other copy.** HController starts nhlscreen itself, and reports a **conflict** if another copy already holds port 9134. Close any terminal running it, and if `nhlscreen.service` was ever installed on this machine, turn it off:
 
 ```bash
 sudo systemctl disable --now nhlscreen
 ```
 
-## The module entry
+### 3. Register it
 
-Add this under `modules:` in `hcontroller.yaml`, then restart HController (it reads the file only at startup):
+HController's `hcontroller.example.yaml` already has this entry, so if you copied it to `hcontroller.yaml`, nhlscreen is registered on macOS, Linux and the Pi. Otherwise add it under `modules:` in `hcontroller.yaml`:
 
 ```yaml
 modules:
@@ -59,6 +66,8 @@ modules:
     log_ignore: ['"GET /(render/frame|health) HTTP/[\d.]+" 200']
 ```
 
+The same entry works on Windows: HController finds the venv's `.venv\Scripts\python.exe` there.
+
 And in the `display:` section of the same file:
 
 ```yaml
@@ -68,11 +77,33 @@ display:
   default: nhlscreen     # shown whenever no schedule window applies
 ```
 
-Why each setting:
+### 4. Restart HController
+
+It reads `hcontroller.yaml` only at startup.
+
+- **Pi / Linux with the service:** `sudo systemctl restart hcontroller`.
+- **Started in a terminal:** press Ctrl+C there, then start it again (`.venv/bin/python -m hcontroller`, or `.venv\Scripts\python.exe -m hcontroller` on Windows).
+
+### 5. Check it
+
+Open HController's dashboard (`http://<machine>:1630/`):
+
+- **Status:** nhlscreen's card goes from **starting** to **healthy** within a few seconds.
+- **Preview:** the dashboard's LED panel preview shows the same screen as nhlscreen's own preview page (`http://<machine>:9134/`). The clock may be a second apart. For the first 90 seconds it's the idle screen, while the first live data waits out the anti-spoiler delay.
+- **Panel:** **Show now → NHL Scoreboard** puts it on the panel straight away.
+
+### 6. Set your teams
+
+Either way works, and neither needs a terminal:
+
+- **Config file** on nhlscreen's card: edit `favorite_teams`, `favorite_players` and `timezone`, then **Save & restart**.
+- **Open** on nhlscreen's card: pick teams and players on nhlscreen's own page. Those choices win over the config file until **Reset to config**. From another device, this link needs `server.host: 0.0.0.0` in nhlscreen's config (see [below](#keeping-the-two-configs-in-step)).
+
+## What each setting does
 
 | Setting | Why |
 |---|---|
-| `cwd: ~/nhlscreen` | nhlscreen looks for `./config.yaml` here, and saves your team choices to `nhlscreen-state.json` next to it |
+| `cwd: ~/nhlscreen` | nhlscreen looks for `./config.yaml` here, and saves your team choices to `nhlscreen-state.json` next to it. On Windows, `~` is `C:\Users\<you>`. |
 | `command` | nhlscreen's own venv, so it doesn't depend on `PATH`; on the Pi, systemd's `PATH` is minimal. **Don't add `--config config.yaml`.** nhlscreen stops with an error if the file `--config` names doesn't exist, and it already uses `./config.yaml` when there is one. |
 | `url: http://127.0.0.1:9134` | where HController reaches nhlscreen. The port must match `server.port` in nhlscreen's config (9134 by default). |
 | `health: /health` | see [Health](#health) |
@@ -125,6 +156,10 @@ To try the whole setup without a live game, run nhlscreen's replay instead. Buil
 cd ~/nhlscreen && .venv/bin/python tools/synth_replay.py --out replays/synthetic
 ```
 
+```powershell
+cd ~\nhlscreen; .venv\Scripts\python.exe tools\synth_replay.py --out replays\synthetic
+```
+
 Then use this `command` in the module entry:
 
 ```yaml
@@ -161,22 +196,21 @@ modules:
 ```
 
 On that machine:
-- **Listening:** set `server.host: 0.0.0.0` in nhlscreen's config.
-- **Starting:** run nhlscreen under its own unit (`deploy/nhlscreen.service`, see the README's Raspberry Pi section).
+- **Listening:** set `server.host: 0.0.0.0` in nhlscreen's config, and allow the firewall prompt on Windows or macOS.
+- **Starting:** on Linux, run nhlscreen under its own service (see [the README](../README.md#start-it-at-boot-without-hcontroller-linux)); on a Mac or PC, leave it running in a terminal.
 
 While it's on the panel, frames use about 2 Mbit/s of network. The config editor and logs aren't available for an app on another device.
 
-## Checking it
+## Troubleshooting
 
-After restarting HController, open its dashboard (`http://<pi>:1630/`):
-
-- **Status:** nhlscreen's card goes from **starting** to **healthy** within a few seconds.
-- **Preview:** the dashboard's LED panel preview shows the same screen as nhlscreen's own preview page (`http://<pi>:9134/`). The clock may be a second apart.
-- **Panel:** **Show now → NHL Scoreboard** puts it on the panel straight away.
-- **Problems:**
-  - **conflict:** another copy is running, such as `nhlscreen.service` or one started by hand.
-  - **crashed:** **Logs** on the card shows nhlscreen's error.
-  - **Frame size error under the preview:** `display.matrix_width` / `matrix_height` don't match HController's `display.width` / `height`.
+| On nhlscreen's card | What to do |
+|---|---|
+| **conflict** | Another copy is running: `nhlscreen.service`, or one started by hand in a terminal. Stop it, and HController starts its own within 5 s. |
+| `.../.venv/bin/python doesn't exist` | nhlscreen's venv is missing. Make it with step 2. |
+| `cwd ... doesn't exist` | nhlscreen isn't at `~/nhlscreen`. Clone it there, or change `cwd`. |
+| **crashed** | **Logs** on the card shows nhlscreen's error. |
+| A frame size error under the preview | `display.matrix_width` / `matrix_height` don't match HController's `display.width` / `height`. |
+| **Open** doesn't load from another device | Set `server.host: 0.0.0.0` in nhlscreen's config, then **Save & restart**. |
 
 ## For nhlscreen development
 

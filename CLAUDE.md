@@ -1,6 +1,6 @@
 # nhlscreen: context for Claude sessions
 
-A DIY LED scoreboard for live NHL stats. This repo is the **backend + renderer**. It polls the NHL's public web API, turns data into "screens", decides what the board shows, and draws each screen as a 128×64 RGB frame. The browser preview at `/` shows exactly what the panel shows. `README.md` is the user-facing guide; this file is the working context: decisions, conventions, and what's next.
+A DIY LED scoreboard for live NHL stats. This repo is the **backend + renderer**. It polls the NHL's public web API, turns data into "screens", decides what the board shows, and draws each screen as a 128×64 RGB frame. The browser preview at `/` shows exactly what the panel shows. `README.md` is the user-facing setup guide (macOS / Linux / Pi and Windows commands side by side); `docs/reference.md` is the technical reference (screen format, colors, live clock, renderer, API, polling, code layout); this file is the working context: decisions, conventions, and what's next.
 
 ## Status (as of 2026-10-15)
 
@@ -106,7 +106,7 @@ The feed is coarse: a new reading every ~20s, and a CDN copy labelled age 0 can 
 - **Visual changes:** run `tools/render_previews.py` and look at the PNGs (Claude can Read them) before calling a layout done; check worst cases (long names, two assists, two-digit scores, conference tables).
 - The user reviews in the browser demo; restart the demo server after backend changes (`debug.html` is re-read per request, Python isn't).
 - Keep span semantics: when adding text, tag it `label`/`value`/`team`/`player` rather than formatting strings.
-- Update `README.md` when user-facing behavior changes. Python ≥3.11 (Raspberry Pi OS Bookworm ships 3.11).
+- Update `README.md` when user-facing behavior changes, giving commands for both macOS/Linux and Windows (PowerShell), and `docs/reference.md` when the screen format, API, clock or polling change. Keep technical detail out of the README. Python ≥3.11 (Raspberry Pi OS Bookworm ships 3.11).
 
 ## Next steps
 

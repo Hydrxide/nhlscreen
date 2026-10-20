@@ -1,47 +1,189 @@
 # nhlscreen
 
-Backend data service for a DIY NHL LED scoreboard. It polls the NHL's public web API, normalizes the data, detects goals, penalties and finals, and decides what the board should show. It serves all of this over HTTP/WebSocket on localhost.
+A DIY NHL scoreboard for a 128 × 64 LED panel. It follows your teams through the NHL's public web API and shows their live games (score, clock, power plays, shots), goal alerts with the scorer and assists, final scores, the league scoreboard, standings, stat leaders and player cards.
 
-The backend never draws pixels. It hands out layout-agnostic **screens**, so the LED panel size and renderer can be chosen later, whether that's a Pi HUB75 matrix, an ESP32, or a browser preview.
+It runs on a Mac, a Linux PC, a Windows PC or a Raspberry Pi. A **browser preview** shows exactly what the panel shows, so you don't need any LED hardware to use it. On the Pi with the panel, [HController](https://github.com/Hydrxide/HController) runs nhlscreen and puts it on the panel; see [Put it on the LED panel](#put-it-on-the-led-panel).
 
-```
-NHL API ─► client (cache, backoff) ─► parsers ─► store ─┬─► event detector ─► alerts
-                    ▲                                    └─► scheduler ──────► current screen
-              poller (adaptive cadence)                                         │
-                                                         FastAPI :9134  ◄───────┘
-                                                         REST + WS /events ─► renderer
-```
+This README is a setup guide. How it works inside, the API and the screen format are in [docs/reference.md](docs/reference.md).
 
-## Quick start
+**Contents:** [What you need](#what-you-need) · [1. Install](#1-install) · [2. Run it](#2-run-it) · [3. Pick your teams and players](#3-pick-your-teams-and-players) · [Open it from your phone](#open-it-from-your-phone) · [Put it on the LED panel](#put-it-on-the-led-panel) · [Start it at boot without HController (Linux)](#start-it-at-boot-without-hcontroller-linux) · [What the board shows](#what-the-board-shows) · [Troubleshooting](#troubleshooting) · [For developers](#for-developers)
+
+## What you need
+
+- **Python 3.11 or newer** and **git**.
+
+| | Install Python and git | Check |
+|---|---|---|
+| **Raspberry Pi OS, Debian, Ubuntu** | `sudo apt update && sudo apt install -y git python3 python3-venv` | `python3 --version` |
+| **macOS** | `xcode-select --install` for git. Python from [python.org](https://www.python.org/downloads/macos/) or `brew install python@3.13` | `python3 --version` |
+| **Windows** | `winget install Git.Git` and `winget install Python.Python.3.13` in PowerShell, or the installers from [git-scm.com](https://git-scm.com/download/win) and [python.org](https://www.python.org/downloads/windows/). Then open a new PowerShell window. | `py --version` |
+
+If `python3 --version` shows something older than 3.11, call the newer Python by its full name below, for example `python3.13 -m venv .venv`. The `python3` that comes with macOS is 3.9, and Ubuntu 22.04's is 3.10; both are too old.
+
+## 1. Install
+
+**macOS, Linux and the Pi:**
 
 ```bash
+cd ~
+git clone https://github.com/Hydrxide/nhlscreen.git
+cd nhlscreen
 python3 -m venv .venv
-.venv/bin/pip install -e '.[dev]'
-cp config.example.yaml config.yaml      # set favorite_teams / favorite_players
-.venv/bin/python -m nhlscreen           # serves http://127.0.0.1:9134
+.venv/bin/pip install -e .
+cp config.example.yaml config.yaml
 ```
 
-On Windows, use `.venv\Scripts\` in place of `.venv/bin/` (and `copy` for `cp`). Python 3.11 or newer is required.
+**Windows (PowerShell):**
 
-### Running the board
+```powershell
+cd ~
+git clone https://github.com/Hydrxide/nhlscreen.git
+cd nhlscreen
+py -m venv .venv
+.venv\Scripts\pip install -e .
+copy config.example.yaml config.yaml
+```
 
-Live NHL data, or a demo game replayed at 10× (a full game in about 7 minutes). Both serve on port 9134, so run one at a time; Ctrl+C stops it.
+Use PowerShell rather than the old Command Prompt for the Windows commands in this guide. There's no need to "activate" the venv: the commands call its Python directly.
+
+`config.yaml` is optional: without it nhlscreen follows the Toronto Maple Leafs, in Toronto's timezone. Open it in any text editor now and set at least:
+
+```yaml
+favorite_teams: [EDM]          # one or more team codes; `displayteam --list` shows them all
+timezone: America/Edmonton     # the times the board shows (an IANA name, e.g. America/New_York)
+```
+
+Every other setting is explained in `config.example.yaml`. nhlscreen reads the file only at startup, so restart it after a change.
+
+## 2. Run it
+
+**macOS, Linux and the Pi:**
 
 ```bash
-# macOS / Linux / Pi
-.venv/bin/python -m nhlscreen                                          # live
-.venv/bin/python tools/synth_replay.py --out replays/synthetic         # build the demo game once (~17 MB)
-.venv/bin/python -m nhlscreen --replay replays/synthetic --speed 10    # replay
+cd ~/nhlscreen
+.venv/bin/python -m nhlscreen
+```
+
+**Windows:**
+
+```powershell
+cd ~\nhlscreen
+.venv\Scripts\python.exe -m nhlscreen
+```
+
+Then open **http://127.0.0.1:9134/** in a browser on the same machine. It keeps running until you press **Ctrl+C**.
+
+**Check it's working:** the page's LED preview first shows an idle screen (NHL and the time). Within 90 seconds it switches to the board: your team's live game if it's playing, otherwise the rotation of next game, scoreboard, standings, leaders and player cards. The wait is the [anti-spoiler delay](#anti-spoiler-delay) on the first live data.
+
+The page has the LED preview, **Show now** buttons and favorite players on the left, and the team picker, recent events and a collapsible **Screen JSON** debug panel on the right.
+
+### A demo game
+
+No game on? Replay one at 10× speed (a full game in about 7 minutes). Build the demo once (about 17 MB), then run it instead of the live board; both use port 9134, so stop the other first.
+
+```bash
+.venv/bin/python tools/synth_replay.py --out replays/synthetic
+.venv/bin/python -m nhlscreen --replay replays/synthetic --speed 10
 ```
 
 ```powershell
-# Windows
-.venv\Scripts\python.exe -m nhlscreen                                       # live
-.venv\Scripts\python.exe tools\synth_replay.py --out replays\synthetic      # build the demo game once (~17 MB)
-.venv\Scripts\python.exe -m nhlscreen --replay replays\synthetic --speed 10 # replay
+.venv\Scripts\python.exe tools\synth_replay.py --out replays\synthetic
+.venv\Scripts\python.exe -m nhlscreen --replay replays\synthetic --speed 10
 ```
 
-Open **http://127.0.0.1:9134/** for a live preview of the board. The left column has the LED preview, **Show now** buttons and favorite players; the right column has the team picker, recent events and a collapsible **Screen JSON** debug panel (collapsed by default; the page remembers if you open it).
+Replays don't save team or player choices.
+
+## 3. Pick your teams and players
+
+`config.yaml` holds the defaults. You can change the teams and players while it runs, from the browser or a terminal. Those choices are saved to `nhlscreen-state.json` next to `config.yaml`, win over the config file through restarts, and go away with **Reset to config** (or `displayteam --reset`).
+
+### Teams, from the browser
+
+Tap a team on the preview page. It shows all 32 teams grouped by division in their colors. A **LIVE** badge marks teams playing right now, and teams with a game still to come show its start time. Tick **Follow several** to pick more than one team. Every open copy of the page stays in sync.
+
+If the new team is playing, the board jumps to its live game. A game you switch into partway through doesn't replay old goal alerts; alerts start with the next goal.
+
+### Players, from the browser
+
+The **Favorite players** box has two fields. Type a player ID, or paste the player's nhl.com link (`nhl.com/player/gavin-mckenna-8486067`), and press **Save players**. Each ID is checked with the NHL before saving, so a typo gets an error instead of a blank card. Leave a field empty to feature one player.
+
+### Teams, from a terminal: `displayteam`
+
+```bash
+.venv/bin/displayteam              # the current team and what's on screen
+.venv/bin/displayteam EDM          # follow the Oilers (nicknames work too: oilers)
+.venv/bin/displayteam TOR EDM      # follow several teams; their live games alternate
+.venv/bin/displayteam --reset      # back to favorite_teams from config.yaml
+.venv/bin/displayteam --list       # all team codes
+```
+
+On Windows, use `.venv\Scripts\displayteam` in place of `.venv/bin/displayteam`.
+
+It talks to the board at `$NHLSCREEN_URL` (default `http://127.0.0.1:9134`), so it can switch a board on another machine:
+
+```bash
+export NHLSCREEN_URL=http://raspberrypi.local:9134        # macOS / Linux
+```
+
+```powershell
+$env:NHLSCREEN_URL = "http://raspberrypi.local:9134"      # Windows
+```
+
+To type plain `displayteam` on the Pi or Linux, link it into `~/.local/bin`, which Raspberry Pi OS puts on your `PATH` (open a new shell afterwards):
+
+```bash
+mkdir -p ~/.local/bin && ln -sf ~/nhlscreen/.venv/bin/displayteam ~/.local/bin/displayteam
+```
+
+### Show now
+
+Under the board preview, **Show now** has a button for each screen: next game, scoreboard, division, wild card, league standings, leaders, player cards, goal alert and final score. A press plays that screen next (every page of it, each for its normal time, even during a live game), then the rotation starts over from the top. **Goal alert** and **Final score** replay your team's most recent real game. Buttons with nothing to show yet are greyed out.
+
+## Open it from your phone
+
+By default nhlscreen only answers on the machine it runs on. To open the preview page from a phone or another computer, set this in `config.yaml` and restart it:
+
+```yaml
+server:
+  host: 0.0.0.0
+```
+
+Then open `http://<machine>:9134/`, where `<machine>` is its name (`raspberrypi.local` on a Pi) or its IP address:
+
+| | Find the IP address |
+|---|---|
+| Pi / Linux | `hostname -I` |
+| macOS | `ipconfig getifaddr en0` |
+| Windows | `ipconfig`, the **IPv4 Address** line |
+
+The first time it starts this way, Windows asks whether to allow Python through the firewall: allow it on **private** networks. macOS asks the same only if its firewall is on.
+
+There's no login, so anyone on your Wi-Fi can switch teams. Bookmark the page or add it to your phone's home screen.
+
+## Put it on the LED panel
+
+On the Pi, [HController](https://github.com/Hydrxide/HController) runs nhlscreen, restarts it if it crashes, and owns the LED panel: its schedule decides when nhlscreen is on the panel, and other apps can share the panel at other times. HController also works on a Mac or PC for testing, with its dashboard preview in place of the panel.
+
+1. Set up HController with its README.
+2. Install nhlscreen next to it ([step 1](#1-install) above).
+3. Register it in HController's config, with **[docs/hcontroller.md](docs/hcontroller.md)**: the block to paste, what each setting does, and the settings that must agree between the two.
+
+## Start it at boot without HController (Linux)
+
+Only do this if HController **isn't** running nhlscreen: two copies would compete for port 9134, and HController would report a conflict.
+
+On a Pi, or any Linux machine with systemd:
+
+```bash
+cd ~/nhlscreen
+sed "s#/home/pi#$HOME#g; s#^User=pi#User=$USER#" deploy/nhlscreen.service | sudo tee /etc/systemd/system/nhlscreen.service > /dev/null
+sudo systemctl daemon-reload && sudo systemctl enable --now nhlscreen
+journalctl -u nhlscreen -f          # its output; Ctrl+C stops watching
+```
+
+The `sed` fills in your username and home folder, since the unit file is written for a user called `pi`. The service needs `config.yaml` to exist. Restart it after editing the config: `sudo systemctl restart nhlscreen`.
+
+On macOS and Windows there's no service: run it in a terminal ([step 2](#2-run-it)) while you use it.
 
 ## What the board shows
 
@@ -58,179 +200,39 @@ Screens are chosen in priority order:
 
    Followed teams are highlighted with a grey bar in every table.
 
-Each screen has this shape:
-
-```json
-{
-  "id": "live_game:2026020102", "type": "live_game", "priority": 50, "dwell_seconds": 15,
-  "data":  { "...structured fields: teams + LED-safe colors, score, clock, situation, stats" },
-  "spans": [
-    [{"kind": "team", "text": "TOR"}, {"kind": "label", "text": " "}, {"kind": "value", "text": "2"}, "..."],
-    [{"kind": "label", "text": "2nd"}, {"kind": "label", "text": " "}, {"kind": "value", "text": "12:34", "clock": true}, "..."]
-  ],
-  "lines": ["TOR 2  UTA 4", "2nd 12:34  PP TOR", "SOG 18-21"]
-}
-```
-
-`spans` is the screen's text, line by line, split into tagged pieces so a renderer can style each one:
-
-| kind | color | used for |
-|---|---|---|
-| `label` | white | titles, ranks (`1.`), `NEXT:` / `LAST:`, `vs` / `@`, stat names (`SOG`, `GP`), `GOAL!`, `A:` |
-| `value` | gold | the stats: scores, clock, period names (`2ND`, `OT`, `1ST INT`), `FINAL`, `WARMUP`, start times, records, stat values, results (`L 4-5`) |
-| `team` | span's `color` | team codes. On live game info `color` follows the home/away rule; elsewhere it's the team's own color |
-| `player` | span's `color` | player names, always in their team's own color (even on the away side) |
-
-Team and player spans carry their resolved `color`, so a renderer never needs to apply the color rules itself. W-L-OTL records (`6-1-1`) are split into spans the same way: wins light green, losses light red, OT losses gold, dashes white; standings rows also carry them as `record_spans`. The span with `"clock": true` is the live game clock; renderers replace its text as they count down. `lines` is the same text as plain strings, for logs and the simplest panels. `data` carries everything a richer renderer needs.
-
-**Team colors.** Every team carries `colors.display`: its primary brand color with the hue kept but brightness raised, because dark navy and black barely light an LED. Teams whose primary is black use their secondary color, and a few hand-picked exceptions live in `LED_OVERRIDES` in `static/teams.py`; tune those by eye once the panel is built. For live game info (the live game screen and goal / no-goal alerts), teams also carry `colors.game`, which follows the jersey convention: **home team in its color, away team in white**, so the two sides never look alike. Everything else, including the league scoreboard pages and the final-score alert, uses each team's own `colors.display`. Renderers should use `colors.game` when it's present and `colors.display` otherwise.
-
-For a live game, `data.clock` has `seconds_remaining`, `running`, `as_of` and `rate`. Renderers should **count the clock down locally**, showing `seconds_remaining - (now - as_of) * rate`; `/debug` does this. The NHL only publishes a new clock reading about every 20 seconds, and a reading can be up to ~19s older than it claims. Because the board runs 25 seconds behind (see *Anti-spoiler delay*), it already has the next reading while showing the current one, so the backend steers the clock to arrive at each reading exactly on time: `rate` is the pace for the current stretch (usually 1, a little slower after a missed whistle, a little faster after a stale reading, 0 while held at a stoppage). The clock never jumps; it just runs a bit uneven at times. The power-play time under the clock (`data.situation.seconds_remaining`, read when the game clock showed `clock_at`) counts down off that same game clock, `seconds_remaining - (clock_at - game clock now)`, so it ticks, slows and holds exactly with the main timer.
-
-## Switching teams
-
-### From a browser (laptop or phone)
-
-Open **http://raspberrypi.local:9134/** (use your Pi's hostname or IP) and tap a team. The page shows all 32 teams grouped by division in their colors. A **LIVE** badge marks teams playing right now, and teams with a game still to come show its start time. Tick **Follow several** to pick more than one team; **Reset to config** returns to `config.yaml`. Every open copy of the page stays in sync, including changes made with `displayteam`.
-
-To reach the page from other devices, open the backend to your network in `config.yaml` on the Pi and restart it:
-
-```yaml
-server:
-  host: 0.0.0.0
-```
-
-There's no login, so anyone on your Wi-Fi can switch teams. Bookmark the page or add it to your phone's home screen.
-
-### Show now (browser)
-
-Under the board preview, **Show now** has a button for each screen: next game, scoreboard, division, wild card, league standings, leaders, player cards, goal alert and final score. A press clears the queue and plays that screen next (every page of it, each for its normal time, even during a live game), then the rotation starts over from the top. **Goal alert** and **Final score** replay your team's most recent real game. Buttons with nothing to show yet are greyed out. Every open page controls the same board, so the latest press wins.
+On live game screens and goal alerts, the home team is in its color and the away team in white (the jersey convention), so the two sides never look alike. Everywhere else each team has its own color.
 
 ### Anti-spoiler delay
 
-TV and streaming broadcasts run behind real time, so a board fed straight from the NHL would flash goals before you see them. Live game data is always shown **25 seconds** after the NHL produced it: the live clock, scores, goal and no-goal alerts, and final scores. It isn't adjustable: 25s is longer than the NHL's ~20s update interval, which is what lets the board plan the clock one reading ahead (see the live clock notes above). To change it, edit `SPOILER_DELAY_SECONDS` in `services/poller.py`; keep it above ~22s. Standings, schedules, leaders and player cards aren't delayed. In replays the delay is in game seconds, so it shrinks with `--speed` like everything else.
+TV and streaming broadcasts run behind real time, so a board fed straight from the NHL would flash goals before you see them. Live game data is always shown **25 seconds** after the NHL produced it: the live clock, scores, goal and no-goal alerts, and final scores. It isn't adjustable: 25s is longer than the NHL's ~20s update interval, which is what lets the board run the clock smoothly (see [docs/reference.md](docs/reference.md#the-live-clock)). Standings, schedules, leaders and player cards aren't delayed. In replays the delay is in game seconds, so it shrinks with `--speed` like everything else.
 
-### Favorite players (browser)
+## Troubleshooting
 
-Under the team picker, the **Favorite players** box has two fields. Type a player ID, or paste the player's nhl.com link (`nhl.com/player/gavin-mckenna-8486067`), and press **Save players**. Each ID is checked with the NHL before saving, so a typo gets an error instead of a blank card. Leave a field empty to feature one player; **Reset to config** returns to `favorite_players` from `config.yaml`. The choice is saved with your team choice in `nhlscreen-state.json`.
-
-### From a terminal: `displayteam`
-
-```bash
-displayteam              # show the current team and what's on screen
-displayteam EDM          # follow the Oilers (nicknames work too: displayteam oilers)
-displayteam TOR EDM      # follow several teams; their live games alternate
-displayteam --reset      # back to favorite_teams from config.yaml
-displayteam --list       # all team codes
-```
-
-The switch takes effect immediately. If the new team is playing, the board jumps to its live game, and live polling moves from the old team's game to the new one. A game you switch into partway through doesn't replay old goal alerts; alerts start with the next goal.
-
-Your choice is saved to `nhlscreen-state.json` next to `config.yaml`, so it survives a reboot. Use `--reset` to delete that file and go back to the config.
-
-The command talks to the backend at `$NHLSCREEN_URL` (default `http://127.0.0.1:9134`). From a laptop, use `export NHLSCREEN_URL=http://raspberrypi.local:9134`. It's installed at `.venv/bin/displayteam`. To run it as plain `displayteam` on the Pi:
-
-```bash
-mkdir -p ~/.local/bin && ln -sf ~/nhlscreen/.venv/bin/displayteam ~/.local/bin/displayteam
-# ~/.local/bin is on PATH by default on Raspberry Pi OS (open a new shell)
-```
-
-## LED rendering
-
-`src/nhlscreen/render/` turns a screen into the exact 128×64 frame the LED matrix will show. It's pure Python with no hardware dependency, so the same code draws the browser preview now and will drive the panel on the Pi later.
-
-- **Fonts** (`render/fonts.py`): hand-drawn 5×7 (about 21 characters per line) and 3×5 (about 30). Letters are proportional and digits fixed-width so numbers line up. Text is drawn uppercase.
-- **Layouts** (`render/layouts.py`): hand-placed for the live game, scoreboard, standings, leaders and player cards. Alerts, next game and idle center their lines and use the largest font that fits.
-- **Endpoints:** `GET /render/frame` returns the current frame as raw RGB bytes (width × height × 3; size in the `X-Width`/`X-Height` headers). `GET /render/frame.png?pitch=6` returns it as an LED-dot picture.
-- **Size:** `display.matrix_width` / `matrix_height` in `config.yaml` (default 128×64). The hand-placed layouts are designed for 128×64.
-
-The preview page draws these frames as LED dots several times a second, so what you see there is what the panel will show.
-
-## API
-
-| | |
+| What you see | What to do |
 |---|---|
-| `GET /screen/current` | what the board should show now |
-| `WS /events` | pushes `{"type":"screen"}` on every change and `{"type":"event"}` for goals, penalties and finals |
-| `GET /games`, `/games/{id}` | today's games, and one game in depth (stats, penalties, three stars) |
-| `GET /standings?scope=division&team=TOR` | standings |
-| `GET /leaders`, `/players/{id}`, `/teams/{abbrev}` | leaders, favorite players, team summary |
-| `GET /events/recent`, `/health` | recent events; data freshness and API backoff state |
-| `GET /render/frame`, `/render/frame.png` | the current screen as the LED matrix frame (raw RGB, or a PNG preview) |
-| `GET/PUT /control/teams` | current favorite teams; `{"teams": ["EDM"]}` to switch, `{"teams": null}` to reset (used by `displayteam`) |
-| `GET /control/screens`, `POST /control/show` | the Show now menu; `{"screen": "standings_league"}` plays that screen next |
-| `GET/PUT /control/players` | current favorite players; `{"players": [8486067, 8475683]}` to switch (IDs checked with the NHL), `{"players": null}` to reset |
+| `ERROR: Package 'nhlscreen' requires a different Python` | The venv was made with Python older than 3.11. Delete the `.venv` folder and make it again with a newer Python (see [What you need](#what-you-need)). |
+| `error while attempting to bind on address ('127.0.0.1', 9134)` | Another copy is running on port 9134: another terminal, the demo, its systemd service, or HController. Stop it first, or run this one on another port with `--port 9135`. |
+| `FileNotFoundError` at startup | `--config` names a file that doesn't exist. Leave `--config` out to use `./config.yaml` when there is one, or the defaults. |
+| The preview stays on the idle screen | Normal for up to 90 seconds after starting. If it stays longer, the terminal shows the NHL API errors; the board keeps retrying. |
+| Times on the board are wrong | Set `timezone` in `config.yaml` and restart. |
+| A change in `config.yaml` didn't take effect | Restart nhlscreen. For teams and players, also press **Reset to config** on the page: choices made there win over the file. |
+| The page doesn't load from a phone | Set `server.host: 0.0.0.0` and restart, allow the firewall prompt, and check both are on the same network (see [Open it from your phone](#open-it-from-your-phone)). |
+| `pip install -e '.[dev]'` fails on Windows | Run it in PowerShell, not Command Prompt, which doesn't understand the single quotes. |
 
-A renderer only needs to connect to `WS /events` and draw each `screen` message it receives.
-
-## Polling and rate limits
-
-The NHL API is unofficial and doesn't publish rate limits. Cadence follows what the CDN allows:
-
-| Data | Live | Otherwise |
-|---|---|---|
-| Favorite-game play-by-play (score, clock, events) | 2 s (`live_poll_seconds`, the minimum) | not polled |
-| Favorite-game team stats (SOG, faceoffs, PP) | 30 s | — |
-| League scoreboard (the CDN caches it for about 19 s) | 20 s | 60 s pregame, 15 min idle |
-| Standings, leaders, players / schedules | 1 h / 6 h | |
-
-That comes to about 15 requests per minute during a favorite-team game. The client honors `Cache-Control: max-age`. On a 429 or 5xx it backs off exponentially, honors `Retry-After` and keeps serving the last good data, so the board never goes blank.
-
-## Testing without a live game
+## For developers
 
 ```bash
-.venv/bin/pytest                                     # unit + end-to-end tests (offline)
-
-# Synthesize a "live" game from a finished one, then replay it at 10x:
-# (game clock runs 10x: each period takes 2 minutes, a full game about 7)
-.venv/bin/python tools/synth_replay.py --out replays/synthetic
-.venv/bin/python -m nhlscreen --replay replays/synthetic --speed 10
-
-# Record a real game (start before puck drop) for faithful replays later:
-.venv/bin/python tools/record_game.py --team TOR --out recordings/tor-game
+.venv/bin/pip install -e '.[dev]'
+.venv/bin/pytest -q                                          # unit + end-to-end tests, offline, ~6 s
+.venv/bin/python tools/render_previews.py --out previews/    # every screen type as an LED-style PNG
+.venv/bin/python tools/record_game.py --team TOR --out recordings/tor-game   # record a real game (start before puck drop)
+.venv/bin/python -m nhlscreen --replay recordings/tor-game   # and replay it
 ```
+
+On Windows, use `.venv\Scripts\` in place of `.venv/bin/`.
 
 Replay mode feeds recorded responses through the real client, poller, detector and scheduler; only the HTTP transport is swapped.
 
-To check layouts without running anything, `tools/render_previews.py --out previews/` writes every screen type as an LED-style PNG.
-
-Working on this with Claude Code? `CLAUDE.md` has the architecture, the display decisions made so far, and next steps.
-
-## Raspberry Pi
-
-On the Pi, nhlscreen normally runs under [HController](https://github.com/Hydrxide/HController), which starts it, restarts it if it crashes, and owns the LED panel: HController's schedule decides when nhlscreen's frames (`GET /render/frame`) are on the panel, and its `hcontroller-panel` driver draws them. **[docs/hcontroller.md](docs/hcontroller.md)** has the module setup to copy into HController's `hcontroller.yaml`, with each setting explained.
-
-```bash
-git clone <this repo> ~/nhlscreen && cd ~/nhlscreen
-python3 -m venv .venv && .venv/bin/pip install -e .
-cp config.example.yaml config.yaml
-```
-
-To run nhlscreen on its own instead, without HController, install its unit. Don't install it when HController runs nhlscreen: two copies would compete for port 9134, and HController would report a conflict.
-
-```bash
-sudo cp deploy/nhlscreen.service /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now nhlscreen
-```
-
-The backend runs as a normal user. The LED driver, which needs root for `rpi-rgb-led-matrix`, is part of HController (`hcontroller-panel`), so the panel can be shared with other apps.
-
-## Layout
-
-```
-src/nhlscreen/
-  nhl/client.py      HTTP, caching, backoff, last-good fallback
-  nhl/parsers.py     the only code that touches raw NHL JSON
-  nhl/models.py      domain models
-  services/poller.py adaptive polling loops
-  services/events.py snapshot diffs -> GameEvents
-  services/scheduler.py  alert > live > rotation
-  views.py           Screen view models
-  render/            LED frames: fonts, canvas, per-screen layouts
-  cli.py             displayteam command
-  api/app.py         FastAPI + /debug page
-  replay.py          replay transport
-tools/               record_game.py, synth_replay.py, render_previews.py
-docs/hcontroller.md  running nhlscreen as an HController module
-tests/fixtures/      real API responses (2026-10-13, TOR @ UTA)
-```
+- **[docs/reference.md](docs/reference.md):** the architecture, the screen format, colors, the live clock, the LED renderer, the API, polling and rate limits, and the code layout.
+- **[docs/hcontroller.md](docs/hcontroller.md):** running under HController, and what HController relies on.
+- **`CLAUDE.md`:** working on this with Claude Code: the display decisions made so far, and next steps.

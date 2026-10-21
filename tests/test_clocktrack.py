@@ -93,6 +93,43 @@ def test_late_reading_continues_from_what_is_shown():
     assert shown(t, 130) == 568
 
 
+def test_a_stop_arrives_when_the_clock_gets_there():
+    t = track(P(100, 600), P(120, 588, running=False))
+    assert t.arrival(t.points[1]) == 112  # held at 588 from 112, though the reading is due at 120
+
+
+def test_only_a_stop_the_clock_reaches_early_arrives_early():
+    running = track(P(100, 600), P(120, 580))
+    assert running.arrival(running.points[1]) == 120
+    behind = track(P(100, 600), P(120, 570, running=False))  # has to run fast to make it
+    assert behind.arrival(behind.points[1]) == 120
+    restart = track(P(100, 600, running=False), P(120, 590, running=False))
+    assert restart.arrival(restart.points[1]) == 120
+    assert restart.arrival(restart.points[0]) == 100
+
+
+def test_longer_delay_holds_the_clock_then_resumes():
+    t = track(P(100, 600), P(120, 580))
+    t.shift(10, now=110)
+    assert shown(t, 110) == 590  # no jump back
+    assert shown(t, 119) == 590  # held while the board falls 10s further behind
+    assert shown(t, 125) == 585
+    assert shown(t, 130) == 580  # the next reading, 10s later than planned
+
+
+def test_refetch_after_a_longer_delay_is_ignored():
+    t = track(P(100, 600))
+    t.shift(10, now=105)
+    assert not t.add(P(110, 600), now=106)  # same reading, dated with the new delay
+    assert shown(t, 112) == 595
+
+
+def test_shorter_delay_jumps_the_clock_ahead():
+    t = track(P(100, 600), P(120, 580))
+    t.shift(-10, now=105)
+    assert shown(t, 105) == 585
+
+
 def test_old_points_are_dropped():
     t = ClockTrack(max_points=4)
     for i in range(10):

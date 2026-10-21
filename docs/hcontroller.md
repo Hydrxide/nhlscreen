@@ -177,7 +177,7 @@ With `process: scheduled`, HController runs nhlscreen only around its schedule w
     warmup_seconds: 90
 ```
 
-- **Warm-up:** after each start, nhlscreen shows its idle screen while its first live data waits out the 25-second spoiler delay, for up to 90 seconds. `warmup_seconds: 90` starts it early enough that it's past this when its window begins.
+- **Warm-up:** after each start, nhlscreen shows its idle screen while its first live data waits out the spoiler delay (25 seconds unless raised), for up to 90 seconds. `warmup_seconds: 90` starts it early enough that it's past this when its window begins. If you raise the delay, raise `warmup_seconds` by the same amount: at 45 seconds, use `warmup_seconds: 110`.
 - **Goal alerts:** it only alerts on goals scored after it started.
 - **Team choices:** saved in `nhlscreen-state.json`, so they carry over between runs.
 

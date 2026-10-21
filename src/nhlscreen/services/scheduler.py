@@ -13,7 +13,7 @@ from collections import deque
 from datetime import datetime, timezone
 from typing import Callable
 
-from ..config import Config, RotationEntry
+from ..config import SPOILER_DELAY_SECONDS, Config, RotationEntry
 from ..nhl.models import Game, GameEvent, Goal
 from ..store import Store
 from .. import views
@@ -23,7 +23,8 @@ from ..views import Screen
 LIVE_ALTERNATE_SECONDS = 15.0
 # Live data reaches the Store only after the spoiler delay, so right after startup the
 # rotation would show whatever slow data came first (and miss a live game). Hold the
-# idle screen until the first scoreboard has landed, but never longer than this.
+# idle screen until the first scoreboard has landed, but never longer than this
+# (plus however far the spoiler delay was raised above 25s).
 WARMUP_MAX_SECONDS = 90.0
 
 
@@ -192,7 +193,9 @@ class Scheduler:
             return True
         if self._warm_since is None:
             self._warm_since = now
-        self._warm = "games" in self.store.updated_at or (now - self._warm_since).total_seconds() >= WARMUP_MAX_SECONDS
+        extra = (self.config.display.spoiler_delay_seconds - SPOILER_DELAY_SECONDS) / self.clock_rate
+        waited = (now - self._warm_since).total_seconds()
+        self._warm = "games" in self.store.updated_at or waited >= WARMUP_MAX_SECONDS + extra
         return self._warm
 
     def _expired(self, screen: Screen, now: datetime) -> bool:

@@ -70,6 +70,13 @@
   .shownow button:hover:not(:disabled) { background: #353535; border-color: #555; }
   .shownow button:disabled { opacity: .4; cursor: not-allowed; }
   .shownow button.alert { border-color: #6a4a00; }
+
+  /* spoiler delay */
+  .delay-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+  .delay-row input { width: 6em; background: #111; color: #eee; border: 1px solid #333; border-radius: 6px; padding: 7px 10px;
+                     font: 15px ui-monospace, Menlo, monospace; }
+  .delay-row input:focus { outline: 2px solid #6af; outline-offset: 0; border-color: transparent; }
+  .delay-row .unit { color: #aaa; font-size: 13px; margin-right: 4px; }
 </style>
 </head>
 <body>
@@ -109,6 +116,21 @@
       </form>
       <div class="msg" id="playersMsg" role="status" aria-live="polite"></div>
       <p class="hint">The ID is the number at the end of a player's nhl.com link, e.g. nhl.com/player/gavin-mckenna-<b>8486067</b>. You can paste the whole link. Leave a box empty for just one player.</p>
+    </section>
+
+    <section class="picker" aria-labelledby="delay-label">
+      <div class="picker-head">
+        <h2 id="delay-label">Spoiler delay</h2>
+        <button class="reset" id="resetDelay" type="button" hidden></button>
+      </div>
+      <form class="delay-row" id="delayForm" novalidate>
+        <input id="delay" type="number" min="25" max="300" step="1" inputmode="numeric" autocomplete="off"
+               aria-labelledby="delay-label" aria-describedby="delayHint">
+        <span class="unit">seconds</span>
+        <button class="save" id="saveDelay" type="submit">Save delay</button>
+      </form>
+      <div class="msg" id="delayMsg" role="status" aria-live="polite"></div>
+      <p class="hint" id="delayHint">The live clock, scores and goal alerts show this long after the NHL posts them. 25 is the minimum. If goals reach the board before your TV or stream shows them, raise it by about that gap.</p>
     </section>
   </div>
 
@@ -446,6 +468,74 @@ async function loadPlayers() {
     if (r.ok) { playersState = await r.json(); renderPlayers(); }
   } catch (e) { /* backend restarting */ }
 }
+// ------------------------------------------------------------------ spoiler delay
+
+let delayState = null, delayBusy = false;
+const secs = (s) => `${+s.toFixed(1)}s`;
+
+function delayMsg(text, isError = false) {
+  $('delayMsg').textContent = text;
+  $('delayMsg').classList.toggle('err', isError);
+}
+
+function renderDelay() {
+  if (!delayState) return;
+  const d = delayState, input = $('delay');
+  input.min = d.min_seconds;
+  input.max = d.max_seconds;
+  // Don't overwrite what someone is typing.
+  if (document.activeElement !== input) input.value = +d.spoiler_delay_seconds.toFixed(1);
+  $('resetDelay').hidden = d.spoiler_delay_seconds === d.configured_seconds;
+  $('resetDelay').textContent = `Reset to config (${secs(d.configured_seconds)})`;
+}
+
+async function putDelay(seconds) {
+  delayBusy = true;
+  $('saveDelay').disabled = true;
+  const before = delayState ? delayState.spoiler_delay_seconds : null;
+  try {
+    const r = await fetch('/control/delay', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ seconds }),
+    });
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.detail || `HTTP ${r.status}`);
+    delayState = body;
+    renderDelay();
+    const now = body.spoiler_delay_seconds, diff = before === null ? 0 : now - before;
+    delayMsg(`Now ${secs(now)} behind the NHL.` +
+      (diff > 0 ? ` A live game pauses ${secs(diff)} while the board falls back.` : '') +
+      (diff < 0 ? ` A live game jumps ahead ${secs(-diff)}.` : ''));
+  } catch (e) {
+    delayMsg(`Couldn't save: ${e.message}`, true);
+  } finally {
+    delayBusy = false;
+    $('saveDelay').disabled = false;
+  }
+}
+
+$('delayForm').addEventListener('submit', (ev) => {
+  ev.preventDefault();
+  if (delayBusy || !delayState) return;
+  const text = $('delay').value.trim(), value = Number(text);
+  const lo = delayState.min_seconds, hi = delayState.max_seconds;
+  if (!text || !Number.isFinite(value) || value < lo || value > hi) {
+    delayMsg(`Enter ${lo} to ${hi} seconds. It can't go below ${lo}: the live clock needs that much lead.`, true);
+    $('delay').focus();
+    return;
+  }
+  putDelay(value);
+});
+$('resetDelay').addEventListener('click', () => { if (!delayBusy) putDelay(null); });
+
+async function loadDelay() {
+  try {
+    const r = await fetch('/control/delay');
+    if (r.ok) { delayState = await r.json(); renderDelay(); }
+  } catch (e) { /* backend restarting */ }
+}
+
 $('multi').addEventListener('change', () => {
   msg($('multi').checked ? 'Tap teams to add or remove them.' : '');
 });
@@ -461,7 +551,7 @@ function eventLine(e) {
 
 function connect() {
   const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/events`);
-  ws.onopen = () => { $('status').textContent = 'live'; loadTeams(); loadPlayers(); loadShowMenu(); };
+  ws.onopen = () => { $('status').textContent = 'live'; loadTeams(); loadPlayers(); loadShowMenu(); loadDelay(); };
   ws.onclose = () => { $('status').textContent = 'disconnected, retrying…'; setTimeout(connect, 2000); };
   ws.onmessage = (raw) => {
     const m = JSON.parse(raw.data);
@@ -472,6 +562,12 @@ function connect() {
       playersState = { ...playersState, ...m };
       renderPlayers();
       loadShowMenu();
+    } else if (m.type === 'delay') {
+      // Changed elsewhere (another browser).
+      const changed = delayState && m.spoiler_delay_seconds !== delayState.spoiler_delay_seconds;
+      delayState = { ...delayState, ...m };
+      renderDelay();
+      if (changed && !delayBusy) delayMsg(`Delay changed to ${secs(m.spoiler_delay_seconds)}`);
     } else if (m.type === 'teams') {
       // Changed elsewhere (another browser or `displayteam`).
       const changed = teamState && m.favorite_teams.join() !== teamState.favorite_teams.join();

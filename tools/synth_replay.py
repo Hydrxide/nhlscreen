@@ -6,6 +6,7 @@
 Frames are spaced evenly in *game time* (``--step`` game seconds each, which is
 also the replay interval), so the clock flows continuously: at --speed 1 the
 game plays in real time, at --speed 10 a 20-minute period takes 2 minutes.
+Like a real game, the clock stops at each goal for ~30 seconds before play resumes.
 Each frame rewrites score, clock, period, state and on-ice situation in both
 the play-by-play and scoreboard documents, as if the game were live.
 """
@@ -53,6 +54,7 @@ def build(
     pregame_frames: int = 6,
     intermission_frames: int = 24,
     final_frames: int = 3,
+    goal_stop_seconds: int = 30,
 ) -> int:
     load = lambda name: json.loads((fixtures / name).read_text(encoding="utf-8"))  # noqa: E731
     pbp, score, rail, landing = (load("pbp_final.json"), load("score.json"),
@@ -98,11 +100,19 @@ def build(
     # (state, period, elapsed-in-period, clock dict) for every frame
     timeline: list[tuple[str, int, int, dict]] = []
     timeline += [("PRE", 1, -1, _clock(REG_PERIOD, False, False))] * pregame_frames
+    stop_frames = max(1, round(goal_stop_seconds / step))
     for period in range(1, last_period + 1):
         length = period_length(period)
         stop = end_elapsed if period == last_period else length
+        goal_times = sorted({_seconds(p["timeInPeriod"]) for p in plays
+                             if p["typeDescKey"] == "goal" and p["periodDescriptor"]["number"] == period})
         for elapsed in range(0, stop + 1, step):
+            # The clock stops at each goal since the last frame, and holds there.
+            for t in (t for t in goal_times if elapsed - step < t <= elapsed):
+                timeline += [("LIVE", period, t, _clock(length - t, False, False))] * stop_frames
             timeline.append(("LIVE", period, elapsed, _clock(length - elapsed, 0 < elapsed < length, False)))
+        for t in (t for t in goal_times if t > stop - stop % step):  # e.g. an overtime winner
+            timeline += [("LIVE", period, t, _clock(length - t, False, False))] * stop_frames
         if period < last_period:
             timeline += [("LIVE", period, length, _clock(0, False, True))] * intermission_frames
     timeline += [("OFF", last_period, end_elapsed, _clock(0, False, False))] * final_frames

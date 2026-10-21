@@ -49,11 +49,13 @@ For live game info (the live game screen and goal / no-goal alerts), teams also 
 
 For a live game, `data.clock` has `seconds_remaining`, `running`, `as_of` and `rate`. Renderers should **count the clock down locally**, showing `seconds_remaining - (now - as_of) * rate`; the preview page does this.
 
-The NHL only publishes a new clock reading about every 20 seconds, and a reading can be up to ~19s older than it claims. Because the board runs 25 seconds behind (the anti-spoiler delay), it already has the next reading while showing the current one, so the backend steers the clock to arrive at each reading exactly on time: `rate` is the pace for the current stretch (usually 1, a little slower after a missed whistle, a little faster after a stale reading, 0 while held at a stoppage). The clock never jumps; it just runs a bit uneven at times.
+The NHL only publishes a new clock reading about every 20 seconds, and a reading can be up to ~19s older than it claims. Because the board runs at least 25 seconds behind (the anti-spoiler delay), it already has the next reading while showing the current one, so the backend steers the clock to arrive at each reading exactly on time: `rate` is the pace for the current stretch (usually 1, a little slower after a missed whistle, a little faster after a stale reading, 0 while held at a stoppage). The clock never jumps; it just runs a bit uneven at times.
 
 The power-play time under the clock (`data.situation.seconds_remaining`, read when the game clock showed `clock_at`) counts down off that same game clock, `seconds_remaining - (clock_at - game clock now)`, so it ticks, slows and holds exactly with the main timer.
 
-The delay is `SPOILER_DELAY_SECONDS` in `services/poller.py`. Keep it above ~22s, or the clock can no longer be planned one reading ahead.
+When the next reading has the clock stopped, the clock reaches the stopped time before that reading is due and holds there. The snapshot that stopped it (usually a goal) is released at that moment instead of when due, so the goal alert, the new score and the stopped clock appear together. The delay then counts from the play itself rather than from the snapshot that carried it; nothing is shown less than the delay behind the game clock.
+
+The delay is `display.spoiler_delay_seconds`, also settable with `PUT /control/delay`. Its default and minimum is `SPOILER_DELAY_SECONDS` (25, in `config.py`), its maximum 300. Don't lower the minimum below ~22s, or the clock can no longer be planned one reading ahead. A change during a game moves the clock plan with it: a longer delay holds the clock where it is until the plan catches up, a shorter one jumps it ahead.
 
 ## LED rendering
 
@@ -71,7 +73,7 @@ The preview page draws these frames as LED dots several times a second, so what 
 | | |
 |---|---|
 | `GET /screen/current` | what the board should show now |
-| `WS /events` | pushes `{"type":"screen"}` on every change and `{"type":"event"}` for goals, penalties and finals |
+| `WS /events` | pushes `{"type":"screen"}` on every change and `{"type":"event"}` for goals, penalties and finals (plus `teams`, `players` and `delay` when those settings change) |
 | `GET /games`, `/games/{id}` | today's games, and one game in depth (stats, penalties, three stars) |
 | `GET /standings?scope=division&team=TOR` | standings |
 | `GET /leaders`, `/players/{id}`, `/teams/{abbrev}` | leaders, favorite players, team summary |
@@ -80,6 +82,7 @@ The preview page draws these frames as LED dots several times a second, so what 
 | `GET/PUT /control/teams` | current favorite teams; `{"teams": ["EDM"]}` to switch, `{"teams": null}` to reset (used by `displayteam`) |
 | `GET /control/screens`, `POST /control/show` | the Show now menu; `{"screen": "standings_league"}` plays that screen next |
 | `GET/PUT /control/players` | current favorite players; `{"players": [8486067, 8475683]}` to switch (IDs checked with the NHL), `{"players": null}` to reset |
+| `GET/PUT /control/delay` | the anti-spoiler delay and its allowed range; `{"seconds": 45}` to lengthen it (25–300, 400 otherwise), `{"seconds": null}` to reset |
 
 A renderer only needs to connect to `WS /events` and draw each `screen` message it receives.
 

@@ -21,6 +21,7 @@ polling:
   players_seconds: 3600
 
 display:
+  spoiler_delay_seconds: 25    # live data shows this long after the NHL posts it (25-300); raise it if goals beat your TV
   alert_seconds: 25            # how long a goal alert holds the screen
   final_alert_seconds: 60
   intermission_alert_seconds: 20   # score + SOG/PP/FO when the 1st or 2nd period ends

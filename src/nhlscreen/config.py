@@ -11,6 +11,12 @@ from pydantic import BaseModel, Field, field_validator
 
 ScreenKind = Literal["next_game", "scoreboard", "standings", "leaders", "player_card"]
 
+# Anti-spoiler delay: live data is shown this long after the NHL produced it. 25s is
+# the floor, not just the default: the delay must exceed the NHL's ~20s snapshot
+# interval so the live clock can be planned one reading ahead. It can only be raised.
+SPOILER_DELAY_SECONDS = 25.0
+MAX_SPOILER_DELAY_SECONDS = 300.0
+
 
 class PollingConfig(BaseModel):
     # Favorite-team live game: play-by-play carries score, clock, situation, events.
@@ -42,6 +48,9 @@ class RotationEntry(BaseModel):
 
 
 class DisplayConfig(BaseModel):
+    # Raise it if the board shows goals before your TV or stream does.
+    spoiler_delay_seconds: float = Field(SPOILER_DELAY_SECONDS, ge=SPOILER_DELAY_SECONDS,
+                                         le=MAX_SPOILER_DELAY_SECONDS)
     alert_seconds: float = 25.0
     final_alert_seconds: float = 60.0
     # End of the 1st and 2nd periods: score + team stats before the intermission rotation.

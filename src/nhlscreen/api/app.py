@@ -15,9 +15,11 @@
   PUT  /control/players    {"players": [8486067, 8475683]} switch; {"players": null} back to config.yaml
   GET  /control/screens    the "Show now" menu (which screens can be shown right now)
   POST /control/show       {"screen": "standings_league"} clear the queue and show it next
+  GET  /control/delay      the anti-spoiler delay and its allowed range
+  PUT  /control/delay      {"seconds": 40} lengthen it (25 minimum); {"seconds": null} back to config.yaml
   GET  /render/frame       current screen as a raw RGB frame (width*height*3 bytes)
   GET  /render/frame.png   current screen drawn as LED dots
-  WS   /events             pushes {"type": "screen"|"event"|"teams"|"players", ...}
+  WS   /events             pushes {"type": "screen"|"event"|"teams"|"players"|"delay", ...}
   GET  /debug              browser preview of the board + team picker (also at /)
 """
 
@@ -48,6 +50,10 @@ class PlayersRequest(BaseModel):
 
 class ShowRequest(BaseModel):
     screen: str  # an id from GET /control/screens
+
+
+class DelayRequest(BaseModel):
+    seconds: float | None  # None = revert to config.yaml
 
 
 def create_app(runtime: Runtime, manage_lifecycle: bool = True) -> FastAPI:
@@ -174,6 +180,18 @@ def create_app(runtime: Runtime, manage_lifecycle: bool = True) -> FastAPI:
             raise HTTPException(400, str(exc)) from exc
         return {"showing": [s.id for s in screens],
                 "screen": runtime.screen.model_dump(mode="json") if runtime.screen else None}
+
+    @app.get("/control/delay")
+    def get_delay() -> dict[str, Any]:
+        return runtime.delay_state()
+
+    @app.put("/control/delay")
+    async def set_delay(req: DelayRequest) -> dict[str, Any]:
+        try:
+            runtime.set_spoiler_delay(req.seconds)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return runtime.delay_state()
 
     @app.websocket("/events")
     async def events_ws(ws: WebSocket) -> None:

@@ -3,9 +3,9 @@
 The NHL publishes a new clock reading only about every 20 seconds, and a
 reading can be up to ~19 seconds staler than its CDN headers admit. Counting
 down from each reading and snapping to the next one makes the board jump both
-ways. But the board runs SPOILER_DELAY behind real time (25s, more than one
-snapshot interval), so while it shows one reading it usually already holds the
-next. ClockTrack plans the clock between consecutive readings so it arrives at
+ways. But the board runs the spoiler delay behind real time (25s or more,
+longer than one snapshot interval), so while it shows one reading it usually
+already holds the next. ClockTrack plans the clock between consecutive readings so it arrives at
 each one exactly on time, with no jump:
 
   running -> running   count down at whatever steady rate gets there on time
@@ -17,11 +17,15 @@ each one exactly on time, with no jump:
 Times are epoch seconds of *display* time (when the reading was true + the
 delay). A plan is handed to renderers as a ClockSegment: shown =
 seconds - (now - start) * rate, the same formula they already use.
+
+When the clock runs into a stop, it reaches the stopped time before that
+reading is due. arrival() gives that moment, so the snapshot that stopped the
+clock (a goal, say) can be shown as the clock stops instead of after the hold.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 # Steady rates outside this range (x nominal) mean a reading was badly off;
 # jump at the next reading instead of racing the clock.
@@ -52,37 +56,76 @@ class ClockSegment:
 
 
 class ClockTrack:
-    def __init__(self, nominal_rate: float = 1.0, max_points: int = 12) -> None:
+    # max_points covers the longest spoiler delay: 300s of readings ~20s apart live,
+    # or 10 game seconds apart in the synthetic replay.
+    def __init__(self, nominal_rate: float = 1.0, max_points: int = 64) -> None:
         self.rate = nominal_rate  # 1 live; the replay speed in demos
         self.max_points = max_points
         self.points: list[ClockPoint] = []
+        # The last reading added. Usually points[-1], but shift() can add a hold after it.
+        self._latest: ClockPoint | None = None
 
-    def add(self, point: ClockPoint, now: float) -> None:
+    def add(self, point: ClockPoint, now: float) -> bool:
         """Record a reading as soon as it's fetched (it'll be shown at ``point.at``).
 
-        Re-fetching an unchanged reading adds nothing: its first sighting is the
-        best guess of when it became true.
+        Re-fetching an unchanged reading adds nothing (returns False): its first
+        sighting is the best guess of when it became true.
         """
-        if self.points:
+        latest = self._latest
+        if latest is not None and (latest.same_reading(point) or point.at <= latest.at):
+            return False
+        if self.points and now > self.points[-1].at:
+            # The board already ran past the last reading (a late fetch): continue
+            # from what it's showing now so the new plan has no jump.
             last = self.points[-1]
-            if last.same_reading(point) or point.at <= last.at:
-                return
-            if now > last.at:
-                # The board already ran past the last reading (a late fetch): continue
-                # from what it's showing now so the new plan has no jump.
-                seg = self.segment(now)
-                if seg is not None:
-                    self.points.append(ClockPoint(now, seg.value(now), seg.rate > 0, last.period, last.intermission))
+            seg = self.segment(now)
+            if seg is not None:
+                self.points.append(ClockPoint(now, seg.value(now), seg.rate > 0, last.period, last.intermission))
         self.points.append(point)
+        self._latest = point
         # Keep only what's still needed: the segment in progress onwards.
         current = max((i for i, p in enumerate(self.points) if p.at <= now), default=0)
         self.points = self.points[max(current, len(self.points) - self.max_points):]
+        return True
+
+    def arrival(self, point: ClockPoint) -> float:
+        """When the board's clock gets to ``point`` (one already added): its display
+        time, or sooner when the clock runs into it as a stop and holds there."""
+        i = next((i for i, p in enumerate(self.points) if p is point), 0)
+        prev = self.points[i - 1] if i else None
+        if prev is None or not prev.running or point.running:
+            return point.at
+        piece = self._piece(i - 1, point.at)
+        if piece.rate == 0 and prev.at < piece.start < point.at:
+            return piece.start
+        return point.at
+
+    def shift(self, delta: float, now: float) -> None:
+        """The delay changed by ``delta`` seconds: readings not shown yet move with it.
+
+        Longer: the clock holds what it shows now until the plan catches up (no
+        jump back). Shorter: the whole plan moves up and the clock jumps ahead.
+        """
+        if delta > 0:
+            past = [p for p in self.points if p.at <= now]
+            future = [replace(p, at=p.at + delta) for p in self.points if p.at > now]
+            seg = self.segment(now)
+            hold = [ClockPoint(now, seg.value(now), False, past[-1].period, past[-1].intermission)] if seg else []
+            self.points = past + hold + future
+        else:
+            self.points = [replace(p, at=p.at + delta) for p in self.points]
+        if self._latest is not None:
+            self._latest = replace(self._latest, at=self._latest.at + delta)
 
     def segment(self, now: float) -> ClockSegment | None:
         """The piece of the plan in effect at ``now`` (None before the first reading)."""
         k = max((i for i, p in enumerate(self.points) if p.at <= now), default=None)
         if k is None:
             return None
+        return self._piece(k, now)
+
+    def _piece(self, k: int, now: float) -> ClockSegment:
+        """The plan from reading ``k`` towards the next one, at ``now``."""
         p = self.points[k]
         nxt = self.points[k + 1] if k + 1 < len(self.points) else None
         hold = ClockSegment(p.at, p.seconds, 0.0)

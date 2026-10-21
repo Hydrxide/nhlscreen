@@ -189,7 +189,7 @@ On macOS and Windows there's no service: run it in a terminal ([step 2](#2-run-i
 
 ## What the board shows
 
-On startup the board holds a plain idle screen (NHL + the time) until the first live data has waited out the 25s spoiler delay, so it never opens on out-of-date screens; it stops waiting after 90 seconds.
+On startup the board holds a plain idle screen (NHL + the time) until the first live data has waited out the spoiler delay, so it never opens on out-of-date screens; it stops waiting after 90 seconds (longer if you've raised the delay).
 
 Screens are chosen in priority order:
 
@@ -206,7 +206,16 @@ On live game screens and goal alerts, the home team is in its color and the away
 
 ### Anti-spoiler delay
 
-TV and streaming broadcasts run behind real time, so a board fed straight from the NHL would flash goals before you see them. Live game data is always shown **25 seconds** after the NHL produced it: the live clock, scores, goal and no-goal alerts, and final scores. It isn't adjustable: 25s is longer than the NHL's ~20s update interval, which is what lets the board run the clock smoothly (see [docs/reference.md](docs/reference.md#the-live-clock)). Standings, schedules, leaders and player cards aren't delayed. In replays the delay is in game seconds, so it shrinks with `--speed` like everything else.
+TV and streaming broadcasts run behind real time, so a board fed straight from the NHL would flash goals before you see them. Live game data is shown **25 seconds** after the NHL produced it: the live clock, scores, goal and no-goal alerts, and final scores. Standings, schedules, leaders and player cards aren't delayed. When a goal stops the clock, the goal alert appears as soon as the board's clock reaches the goal's time, so the clock and the alert stop together.
+
+**If goals still reach the board before your TV or stream shows them**, raise the delay by about that gap, either on the preview page under **Spoiler delay** or in `config.yaml`:
+
+```yaml
+display:
+  spoiler_delay_seconds: 45
+```
+
+It can be anywhere from 25 to 300 seconds, but never less than 25: that's longer than the NHL's ~20s update interval, which is what lets the board run the clock smoothly (see [docs/reference.md](docs/reference.md#the-live-clock)). Raising it during a game pauses the live game once, for the difference, while the board falls further behind. A delay set on the preview page is saved and outlasts restarts; **Reset to config** goes back to the `config.yaml` value. In replays the delay is in game seconds, so it shrinks with `--speed` like everything else.
 
 ## Troubleshooting
 

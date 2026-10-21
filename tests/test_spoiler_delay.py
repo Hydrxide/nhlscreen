@@ -1,14 +1,16 @@
-"""Anti-spoiler delay: live game data reaches the board a fixed time after it was produced."""
+"""Anti-spoiler delay: live game data reaches the board a set time after it was produced."""
 
 import asyncio
+import json
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from nhlscreen.api.app import create_app
-from nhlscreen.config import Config
+from nhlscreen.config import MAX_SPOILER_DELAY_SECONDS, SPOILER_DELAY_SECONDS, Config
 from nhlscreen.runtime import Runtime
-from nhlscreen.services.poller import SPOILER_DELAY_SECONDS
 
 from test_displayteam import TOR_GAME, StubClient
 
@@ -20,12 +22,47 @@ def _runtime(fixture, delay: float, **kw) -> Runtime:
     return rt
 
 
-def test_delay_is_fixed_and_not_configurable():
-    rt = Runtime(Config())
-    assert rt.poller.spoiler_delay_seconds == SPOILER_DELAY_SECONDS == 25
+def test_delay_is_25_and_can_only_be_raised():
+    assert Config().display.spoiler_delay_seconds == SPOILER_DELAY_SECONDS == 25
+    for too_short_or_long in (0, 20, 24.9, MAX_SPOILER_DELAY_SECONDS + 1):
+        with pytest.raises(ValidationError):
+            Config.model_validate({"display": {"spoiler_delay_seconds": too_short_or_long}})
+    rt = Runtime(Config.model_validate({"display": {"spoiler_delay_seconds": 40}}))
+    assert rt.poller.spoiler_delay_seconds == 40
+
+
+def test_delay_set_from_the_preview_page_is_saved(tmp_path):
+    state = tmp_path / "nhlscreen-state.json"
+    rt = Runtime(Config(), state_path=state)
     with TestClient(create_app(rt, manage_lifecycle=False)) as api:
-        assert api.get("/control/delay").status_code == 404
-        assert 'id="toggleDelay"' not in api.get("/debug").text
+        assert 'id="delayForm"' in api.get("/debug").text
+        assert api.get("/control/delay").json() == {
+            "spoiler_delay_seconds": 25, "configured_seconds": 25, "min_seconds": 25, "max_seconds": 300}
+        too_short = api.put("/control/delay", json={"seconds": 20})
+        assert too_short.status_code == 400 and "25 to 300" in too_short.json()["detail"]
+        assert rt.poller.spoiler_delay_seconds == 25
+
+        assert api.put("/control/delay", json={"seconds": 45}).json()["spoiler_delay_seconds"] == 45
+        assert rt.poller.spoiler_delay_seconds == rt.config.display.spoiler_delay_seconds == 45
+        assert json.loads(state.read_text())["spoiler_delay_seconds"] == 45
+        assert Runtime(Config(), state_path=state).poller.spoiler_delay_seconds == 45  # survives a restart
+
+        assert api.put("/control/delay", json={"seconds": None}).json()["spoiler_delay_seconds"] == 25
+        assert rt.poller.spoiler_delay_seconds == 25
+        assert not state.exists()
+
+
+async def test_raising_the_delay_holds_queued_data_longer(fixture):
+    rt = _runtime(fixture, 0.2)
+    try:
+        await rt.poller.refresh_game(TOR_GAME, with_stats=False)
+        rt.poller.set_spoiler_delay(0.5)
+        await asyncio.sleep(0.3)
+        assert TOR_GAME not in rt.store.details
+        await asyncio.sleep(0.3)
+        assert TOR_GAME in rt.store.details
+    finally:
+        await rt.poller.stop()
 
 
 async def test_live_data_is_held_back(fixture):
@@ -70,6 +107,46 @@ async def test_goal_alert_waits_for_the_delay(fixture):
         await asyncio.sleep(0.05)
         assert not [e for e in rt.store.recent_events if e.kind == "goal"]
         await asyncio.sleep(0.25)
+        assert [e for e in rt.store.recent_events if e.kind == "goal"]
+    finally:
+        await rt.poller.stop()
+
+
+def _clock(seconds: int, running: bool) -> dict:
+    return {"timeRemaining": f"{seconds // 60:02d}:{seconds % 60:02d}", "secondsRemaining": seconds,
+            "running": running, "inIntermission": False}
+
+
+@pytest.mark.parametrize("stopped", [True, False])
+async def test_goal_goes_out_as_the_clock_stops(fixture, stopped):
+    """The board's clock reaches a stop before that snapshot is due and holds there.
+    A goal in it goes out at that moment, not after the hold."""
+    # 100x: the 50 game-second delay is 0.5s, and 10 game seconds of clock take 0.1s.
+    rt = _runtime(fixture, 50, speed=100)
+    client, ages = rt.poller.client, []
+    client.age = lambda path, params=None: ages.pop(0)
+    full = client.pbp
+    last_goal = max(i for i, p in enumerate(full["plays"]) if p.get("typeDescKey") == "goal")
+    try:
+        # Before the goal: clock running at 10:00, shown right away (already 0.5s old).
+        client.pbp, ages[:] = {**full, "plays": full["plays"][:last_goal], "clock": _clock(600, True)}, [0.5]
+        await rt.poller.refresh_game(TOR_GAME, with_stats=False)
+        # Queued ahead of the goal, due later than its clock stop: a re-fetch of that
+        # snapshot (as with max-age=0) and a scoreboard. Neither may hold it back.
+        ages[:] = [0.2, 0.0]
+        await rt.poller.refresh_game(TOR_GAME, with_stats=False)
+        rt.poller._update_tracking = lambda games: None
+        await rt.poller.refresh_scoreboard()
+        # The goal, clock stopped at 9:50 (or still running): due 0.5s from now.
+        client.pbp, ages[:] = {**full, "clock": _clock(590, not stopped)}, [0.0]
+        await rt.poller.refresh_game(TOR_GAME, with_stats=False)
+
+        await asyncio.sleep(0.25)
+        goals = [e for e in rt.store.recent_events if e.kind == "goal"]
+        assert bool(goals) == stopped  # the board's clock stopped at 9:50 0.1s in
+        if stopped:
+            assert rt.store.clock_segment(TOR_GAME, datetime.now(timezone.utc)).value(0) == 590
+        await asyncio.sleep(0.35)
         assert [e for e in rt.store.recent_events if e.kind == "goal"]
     finally:
         await rt.poller.stop()

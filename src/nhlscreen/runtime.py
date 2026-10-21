@@ -11,7 +11,7 @@ from typing import Any
 
 import httpx
 
-from .config import Config, RotationEntry
+from .config import MAX_SPOILER_DELAY_SECONDS, SPOILER_DELAY_SECONDS, Config, RotationEntry
 from .nhl import parsers
 from .nhl.client import NHLClient, NHLNotFound, NHLUnavailable
 from .nhl.models import GameEvent
@@ -38,6 +38,7 @@ class Runtime:
         # From config.yaml; "reset" (displayteam --reset, the preview page) returns to these.
         self.configured_teams = list(config.favorite_teams)
         self.configured_players = list(config.favorite_players)
+        self.configured_delay = config.display.spoiler_delay_seconds
         self.state_path = state_path
         self._load_state()
         self._favorites_lock = asyncio.Lock()
@@ -118,6 +119,32 @@ class Runtime:
         self.store.publish({"type": "players", **self.players_state()})
         return new
 
+    # ------------------------------------------------------------------ spoiler delay
+
+    def set_spoiler_delay(self, seconds: float | None) -> float:
+        """Lengthen (or shorten back) the anti-spoiler delay. ``None`` restores config.yaml's.
+
+        Raises ValueError below SPOILER_DELAY_SECONDS (the clock needs it) or above
+        MAX_SPOILER_DELAY_SECONDS.
+        """
+        new = self.configured_delay if seconds is None else float(seconds)
+        if not SPOILER_DELAY_SECONDS <= new <= MAX_SPOILER_DELAY_SECONDS:
+            raise ValueError(f"The delay must be {SPOILER_DELAY_SECONDS:g} to {MAX_SPOILER_DELAY_SECONDS:g} seconds")
+        self.config.display.spoiler_delay_seconds = new
+        self.poller.set_spoiler_delay(new)
+        self._save_state("spoiler_delay_seconds", None if seconds is None else new)
+        log.info("spoiler delay -> %gs", new)
+        self.store.publish({"type": "delay", **self.delay_state()})
+        return new
+
+    def delay_state(self) -> dict[str, Any]:
+        return {
+            "spoiler_delay_seconds": self.config.display.spoiler_delay_seconds,
+            "configured_seconds": self.configured_delay,
+            "min_seconds": SPOILER_DELAY_SECONDS,
+            "max_seconds": MAX_SPOILER_DELAY_SECONDS,
+        }
+
     def players_state(self) -> dict[str, Any]:
         def describe(pid: int) -> dict[str, Any]:
             p = self.store.players.get(pid)
@@ -188,6 +215,10 @@ class Runtime:
         if isinstance(players, list) and all(isinstance(p, int) for p in players):
             log.info("favorite players from %s: %s", self.state_path, players)
             self.config.favorite_players = list(players)
+        delay = state.get("spoiler_delay_seconds")
+        if isinstance(delay, (int, float)) and SPOILER_DELAY_SECONDS <= delay <= MAX_SPOILER_DELAY_SECONDS:
+            log.info("spoiler delay from %s: %gs (config.yaml has %gs)", self.state_path, delay, self.configured_delay)
+            self.config.display.spoiler_delay_seconds = float(delay)
 
     def _save_state(self, key: str, value: Any | None) -> None:
         """Set (or with None, clear) one saved choice; other choices are kept."""

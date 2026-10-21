@@ -6,15 +6,20 @@
   standings / leaders / schedules / players   slow refreshes (hours)
 
 Anti-spoiler delay: live data (scoreboard and favorite-game snapshots) is fetched
-on time but only applied to the Store, and diffed into events, SPOILER_DELAY_SECONDS
+on time but only applied to the Store, and diffed into events, the spoiler delay
 after it was produced (fetch time minus its CDN age). Everything downstream (clock,
 scores, goal and final alerts) runs that far behind, in step with a delayed TV
 feed. Polling decisions (start/stop tracking) still use the fresh data.
 
-The delay is longer than the NHL's ~20s snapshot interval on purpose: each
-favorite-game clock reading goes into a ClockTrack the moment it's fetched, so
-while the board shows one reading it already knows the next and can steer the
+The delay is SPOILER_DELAY_SECONDS (25s) unless config or the preview page
+lengthens it; it's never shorter. It must exceed the NHL's ~20s snapshot interval:
+each favorite-game clock reading goes into a ClockTrack the moment it's fetched,
+so while the board shows one reading it already knows the next and can steer the
 clock there without jumping (see services/clocktrack.py).
+
+A favorite-game snapshot in which the clock has stopped goes out as soon as the
+board's clock reaches the stopped time, up to one snapshot interval early: a goal
+alert pops as the clock stops instead of after the hold.
 """
 
 from __future__ import annotations
@@ -38,10 +43,6 @@ log = logging.getLogger(__name__)
 
 Now = Callable[[], datetime]
 
-# How far behind real time live data is shown. Fixed: it must exceed the NHL's
-# ~20s snapshot interval so the clock can be planned one reading ahead.
-SPOILER_DELAY_SECONDS = 25.0
-
 
 class Poller:
     def __init__(
@@ -63,10 +64,12 @@ class Poller:
         self.speed = speed
         self._tasks: list[asyncio.Task] = []
         self._tracked: dict[int, asyncio.Task] = {}
-        # In game seconds; tests set 0 to apply updates immediately.
-        self.spoiler_delay_seconds = SPOILER_DELAY_SECONDS
-        # Anti-spoiler queue: (loop time the data was produced, apply), released oldest first.
-        self._pending: deque[tuple[float, Callable[[float], None]]] = deque()
+        # In game seconds; tests set 0 to apply updates immediately. Change it with
+        # set_spoiler_delay() while running, so queued data and clocks follow.
+        self.spoiler_delay_seconds = config.display.spoiler_delay_seconds
+        # Anti-spoiler queues, one per feed (the scoreboard, each tracked game), in fetch
+        # order: (loop time the data was produced, seconds early, apply).
+        self._pending: dict[str | int, deque[tuple[float, float, Callable[[float], None]]]] = {}
         self._pending_changed = asyncio.Event()
         self._release_task: asyncio.Task | None = None
 
@@ -124,37 +127,72 @@ class Poller:
         """The delay in real seconds (replays compress it like every other wait)."""
         return max(0.0, self.spoiler_delay_seconds) / self.speed
 
-    def _deliver(self, apply: Callable[[float], None], age: float = 0.0) -> None:
-        """Apply a live-data update once spoiler_delay has passed since it was produced
-        (``age`` seconds ago), or now if there's no delay.
+    def set_spoiler_delay(self, seconds: float) -> None:
+        """Change the delay while running. Queued data goes out at the new delay, and
+        tracked clocks follow: a longer delay holds the clock (the board pauses to fall
+        further behind), a shorter one jumps it ahead."""
+        delta = (seconds - self.spoiler_delay_seconds) / self.speed
+        self.spoiler_delay_seconds = seconds
+        if not delta:
+            return
+        now = time.time()
+        for track in self.store.clock_tracks.values():
+            track.shift(delta, now)
+        # Early releases were timed by the old clock plan; queued ones go out on time.
+        for feed, queue in self._pending.items():
+            self._pending[feed] = deque((produced, 0.0, apply) for produced, _, apply in queue)
+        self._pending_changed.set()
 
+    def _deliver(self, apply: Callable[[float], None], age: float = 0.0, early: float = 0.0,
+                 feed: str | int = "scoreboard") -> None:
+        """Apply a live-data update once spoiler_delay has passed since it was produced
+        (``age`` seconds ago), less ``early`` seconds, or now if there's no delay.
+
+        Each feed's updates go out in the order they were fetched, except that one going
+        out early supersedes older ones still queued (re-fetches of the snapshot before it).
         ``apply`` gets the lag: how much later than produced + delay it's running
-        (0 when released on time), for dating clock readings.
+        (0 when released on time or early), for dating clock readings.
         """
-        if self.spoiler_delay <= 0 and not self._pending:
+        queue = self._pending.setdefault(feed, deque())
+        if self.spoiler_delay <= 0 and not queue:
             apply(age)
             return
-        self._pending.append((asyncio.get_running_loop().time() - age, apply))
+        queue.append((asyncio.get_running_loop().time() - age, early, apply))
         if self._release_task is None or self._release_task.done():
             self._release_task = asyncio.create_task(self._release_loop(), name="spoiler-delay")
         self._pending_changed.set()
 
+    def _due(self, entry: tuple[float, float, Callable[[float], None]]) -> float:
+        """Loop time a queued update goes out."""
+        produced, early, _ = entry
+        return produced + self.spoiler_delay - early
+
+    def _next_due(self) -> float | None:
+        """Loop time the next update goes out: a feed's oldest, or one going out early."""
+        return min((self._due(e) for q in self._pending.values() for i, e in enumerate(q) if i == 0 or e[1]),
+                   default=None)
+
     def _release_due(self) -> None:
         now = asyncio.get_running_loop().time()
-        while self._pending and self._pending[0][0] + self.spoiler_delay <= now:
-            produced, apply = self._pending.popleft()
-            try:
-                apply(max(0.0, now - produced - self.spoiler_delay))
-            except Exception:
-                log.exception("Applying delayed update failed")
+        for queue in self._pending.values():
+            superseded = max((i for i, e in enumerate(queue) if e[1] and self._due(e) <= now), default=0)
+            for _ in range(superseded):
+                queue.popleft()
+            while queue and self._due(queue[0]) <= now:
+                produced, _, apply = queue.popleft()
+                try:
+                    apply(max(0.0, now - produced - self.spoiler_delay))
+                except Exception:
+                    log.exception("Applying delayed update failed")
 
     async def _release_loop(self) -> None:
         while True:
             self._pending_changed.clear()
             self._release_due()
             wait = None
-            if self._pending:
-                wait = self._pending[0][0] + self.spoiler_delay - asyncio.get_running_loop().time()
+            due = self._next_due()
+            if due is not None:
+                wait = due - asyncio.get_running_loop().time()
             try:
                 await asyncio.wait_for(self._pending_changed.wait(), wait)
             except TimeoutError:
@@ -240,19 +278,27 @@ class Poller:
                 detail.three_stars = parsers.parse_three_stars(await self.client.landing(game_id))
             except NHLUnavailable as exc:
                 log.warning("three stars unavailable for %s: %s", game_id, exc)
-        self._track_clock(detail.game, age)
-        self._deliver(lambda lag: self._apply_detail(detail, lag), age)
+        early = self._track_clock(detail.game, age)
+        self._deliver(lambda lag: self._apply_detail(detail, lag), age, early, feed=game_id)
         return detail.game
 
-    def _track_clock(self, game: Game, age: float) -> None:
-        """Record the reading now, dated to when the board will show it (lookahead)."""
+    def _track_clock(self, game: Game, age: float) -> float:
+        """Record the reading now, dated to when the board will show it (lookahead).
+
+        Returns how many seconds early the snapshot can go out: if the clock stopped
+        in it (a goal, say), the board's clock reaches the stopped time before the
+        reading is due and holds there; the snapshot is released at that moment.
+        """
         c = game.clock
         if c is None or not game.state.is_live:
-            return
+            return 0.0
         now = time.time()
         point = ClockPoint(at=now - age + self.spoiler_delay, seconds=c.seconds_remaining, running=c.running,
                            period=game.period or 0, intermission=c.in_intermission)
-        self.store.clock_track(game.id, self.speed).add(point, now)
+        track = self.store.clock_track(game.id, self.speed)
+        if not track.add(point, now):
+            return 0.0
+        return point.at - track.arrival(point)
 
     def _apply_detail(self, detail: GameDetail, age: float) -> None:
         events = self.detector.from_detail(detail, self.now())

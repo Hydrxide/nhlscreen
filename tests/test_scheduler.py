@@ -242,6 +242,14 @@ def test_idle_hold_gives_up_after_a_while(store):
     assert sched.tick(T0 + timedelta(seconds=WARMUP_MAX_SECONDS)).type == "next_game"
 
 
+def test_idle_hold_waits_out_a_longer_delay(store):
+    store.updated_at.pop("games")
+    sched = Scheduler(store, make_config(spoiler_delay_seconds=55))
+    assert sched.tick(T0).type == "idle"
+    assert sched.tick(T0 + timedelta(seconds=WARMUP_MAX_SECONDS)).type == "idle"
+    assert sched.tick(T0 + timedelta(seconds=WARMUP_MAX_SECONDS + 30)).type == "next_game"
+
+
 def test_rotation_starts_from_the_top_after_idle(fixture):
     store = Store()
     store.set_games([])
